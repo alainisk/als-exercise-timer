@@ -1,4 +1,4 @@
-const CACHE_NAME = 'als-timer-v1';
+const CACHE_NAME = 'als-timer-v2';
 const ASSETS = ['./index.html', './styles.css', './app.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -17,10 +17,10 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request).then(resp => {
+    fetch(e.request).then(resp => {
       const clone = resp.clone();
       caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
       return resp;
-    }))
+    }).catch(() => caches.match(e.request))
   );
 });

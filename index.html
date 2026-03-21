@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Al's Timer">
-  <meta name="theme-color" content="#1a1a1a">
+  <meta name="theme-color" content="#1B2138">
   <title>Al's Exercise Timer</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-180.png">
@@ -15,77 +15,103 @@
 <body>
   <div id="app">
 
-    <!-- ========== HOME SCREEN ========== -->
+    <!-- ========== HOME SCREEN (Workout List) ========== -->
     <div id="screen-home" class="screen active">
-      <div class="home-title">AL'S EXERCISE TIMER</div>
-      <div class="home-content">
-        <div class="home-buttons">
-          <button id="btn-play" class="ctrl-btn ctrl-btn-large" aria-label="Start workout">
-            <svg viewBox="0 0 24 24"><polygon points="6,3 20,12 6,21"/></svg>
-          </button>
-          <button id="btn-home-reset" class="ctrl-btn" aria-label="Reset">
-            <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.96 7.96 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-          </button>
-        </div>
-        <div class="home-info">
-          <h1>Press Play To Start.</h1>
-          <p class="home-preset">Loaded Preset: <strong id="loaded-preset-name">Classic Tabata</strong></p>
-          <p class="home-last">Last Workout: <strong id="last-workout-date">Never</strong></p>
-          <p class="home-quote" id="home-quote"><em>"The journey of a thousand miles begins with one step."</em> — Lao Tzu</p>
-        </div>
-        <button id="btn-settings" class="ctrl-btn" aria-label="Settings">
+      <div class="home-header">
+        <h1 class="home-title">Al's Exercise<br>Timer</h1>
+      </div>
+      <div class="home-body">
+        <div id="workout-list" class="workout-list"></div>
+        <button id="btn-add-workout-home" class="btn-add-workout">
+          <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          <span>New Workout</span>
+        </button>
+      </div>
+      <div class="home-footer">
+        <button id="btn-settings" class="fab-btn" aria-label="Settings">
           <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.61 3.61 0 0112 15.6z"/></svg>
         </button>
       </div>
     </div>
 
+    <!-- ========== WORKOUT START SCREEN ========== -->
+    <div id="screen-workout-start" class="screen">
+      <div class="start-top">
+        <button id="btn-start-back" class="nav-btn" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+        </button>
+        <div class="start-image-area">
+          <img id="start-workout-image" alt="" class="start-image hidden">
+          <div id="start-image-placeholder" class="start-image-placeholder">
+            <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="start-bottom">
+        <h1 id="start-workout-name" class="start-workout-name">Classic Tabata</h1>
+        <p id="start-workout-detail" class="start-workout-detail">8 sets &middot; 1 cycle &middot; ~04:07</p>
+        <p id="start-last-workout" class="start-last-date">Last Workout: Never</p>
+
+        <button id="btn-start-play" class="play-btn" aria-label="Start workout">
+          <svg viewBox="0 0 24 24"><polygon points="6,3 20,12 6,21"/></svg>
+        </button>
+
+        <div class="start-actions">
+          <button id="btn-start-settings" class="fab-btn fab-btn-sm" aria-label="Settings">
+            <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.61 3.61 0 0112 15.6z"/></svg>
+          </button>
+        </div>
+
+        <button id="btn-return-home" class="btn-return-home">Return Home</button>
+      </div>
+    </div>
+
     <!-- ========== TIMER SCREEN ========== -->
     <div id="screen-timer" class="screen">
-      <div class="timer-layout">
+      <div class="timer-top">
+        <button id="btn-timer-back" class="nav-btn" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+        </button>
+        <div class="timer-image-area">
+          <img id="timer-exercise-image" alt="" class="timer-image hidden">
+          <video id="timer-exercise-video" muted playsinline loop class="timer-image hidden"></video>
+          <div id="timer-image-placeholder" class="timer-image-placeholder">
+            <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="timer-bottom">
+        <div class="timer-phase-label" id="timer-phase-label">EXERCISE</div>
+        <div class="timer-exercise-name" id="timer-exercise-name">Push-ups</div>
+        <div class="timer-countdown" id="timer-countdown">00:20</div>
+        <div class="timer-stats">
+          <div class="timer-stat">
+            <span class="stat-current" id="stat-set">01</span><span class="stat-total" id="stat-set-total">/08</span>
+            <span class="stat-label">SETS</span>
+          </div>
+          <div class="timer-stat">
+            <span class="stat-current" id="stat-cycle">01</span><span class="stat-total" id="stat-cycle-total">/01</span>
+            <span class="stat-label">CYCLES</span>
+          </div>
+          <div class="timer-stat">
+            <span class="stat-value" id="stat-time">00:29</span>
+            <span class="stat-label">TIME</span>
+          </div>
+        </div>
         <div class="timer-controls">
           <button id="btn-pause" class="ctrl-btn" aria-label="Pause">
             <svg viewBox="0 0 24 24" id="pause-icon"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
             <svg viewBox="0 0 24 24" id="play-icon" class="hidden"><polygon points="6,3 20,12 6,21"/></svg>
           </button>
-          <button id="btn-prev" class="ctrl-btn" aria-label="Previous interval">
+          <button id="btn-prev" class="ctrl-btn" aria-label="Previous">
             <svg viewBox="0 0 24 24"><polygon points="18,3 8,12 18,21"/><rect x="4" y="3" width="3" height="18"/></svg>
           </button>
-          <button id="btn-next" class="ctrl-btn" aria-label="Next interval">
+          <button id="btn-next" class="ctrl-btn" aria-label="Next">
             <svg viewBox="0 0 24 24"><polygon points="6,3 16,12 6,21"/><rect x="17" y="3" width="3" height="18"/></svg>
           </button>
           <button id="btn-timer-reset" class="ctrl-btn" aria-label="Reset">
             <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.96 7.96 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
           </button>
-        </div>
-        <div class="timer-main">
-          <div class="timer-header">
-            <div class="timer-image-wrap" id="timer-image-wrap">
-              <img id="timer-exercise-image" alt="" class="hidden">
-              <video id="timer-exercise-video" muted playsinline loop class="hidden"></video>
-              <div id="timer-image-placeholder" class="image-placeholder">
-                <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
-              </div>
-            </div>
-            <div class="timer-header-text">
-              <span class="timer-phase-label" id="timer-phase-label">EXERCISE</span>
-              <span class="timer-exercise-name" id="timer-exercise-name">Push-ups</span>
-            </div>
-          </div>
-          <div class="timer-countdown" id="timer-countdown">00:20</div>
-          <div class="timer-stats">
-            <div class="timer-stat">
-              <span class="stat-current" id="stat-set">01</span><span class="stat-total" id="stat-set-total">08</span>
-              <span class="stat-label">sets</span>
-            </div>
-            <div class="timer-stat">
-              <span class="stat-current" id="stat-cycle">01</span><span class="stat-total" id="stat-cycle-total">03</span>
-              <span class="stat-label">cycles</span>
-            </div>
-            <div class="timer-stat">
-              <span class="stat-value" id="stat-time">00:00</span>
-              <span class="stat-label">time</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -109,21 +135,13 @@
     <!-- ========== SETTINGS SCREEN ========== -->
     <div id="screen-settings" class="screen">
       <div class="screen-header">
-        <button id="btn-settings-back" class="ctrl-btn ctrl-btn-small" aria-label="Back">
-          <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        <button id="btn-settings-back" class="nav-btn" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
         </button>
         <h2>Settings</h2>
         <div class="spacer"></div>
       </div>
       <div class="settings-body">
-        <!-- Workouts -->
-        <div class="settings-section">
-          <h3>Workouts</h3>
-          <button id="btn-manage-workouts" class="settings-row settings-row-nav">
-            <span>Manage Workouts</span>
-            <svg viewBox="0 0 24 24" class="chevron"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
-          </button>
-        </div>
         <!-- Sounds -->
         <div class="settings-section">
           <h3>Sounds</h3>
@@ -210,28 +228,14 @@
       </div>
     </div>
 
-    <!-- ========== WORKOUTS LIST SCREEN ========== -->
-    <div id="screen-workouts" class="screen">
-      <div class="screen-header">
-        <button id="btn-workouts-back" class="ctrl-btn ctrl-btn-small" aria-label="Back">
-          <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-        </button>
-        <h2>Workouts</h2>
-        <button id="btn-add-workout" class="ctrl-btn ctrl-btn-small" aria-label="Add workout">
-          <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-        </button>
-      </div>
-      <div id="workout-list" class="workout-list"></div>
-    </div>
-
     <!-- ========== WORKOUT EDITOR SCREEN ========== -->
     <div id="screen-editor" class="screen">
       <div class="screen-header">
-        <button id="btn-editor-back" class="ctrl-btn ctrl-btn-small" aria-label="Back">
-          <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        <button id="btn-editor-back" class="nav-btn" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
         </button>
         <h2 id="editor-title">Edit Workout</h2>
-        <button id="btn-editor-save" class="ctrl-btn ctrl-btn-small" aria-label="Save">
+        <button id="btn-editor-save" class="nav-btn save-btn" aria-label="Save">
           <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
         </button>
       </div>
@@ -239,6 +243,17 @@
         <div class="editor-section">
           <label class="editor-label">Workout Name</label>
           <input type="text" id="edit-name" class="editor-input" placeholder="My Workout">
+        </div>
+        <div class="editor-section">
+          <label class="editor-label">Workout Image</label>
+          <div class="workout-image-upload">
+            <img id="edit-workout-image-preview" class="workout-image-preview hidden" alt="Preview">
+            <div class="workout-image-upload-btns">
+              <button id="btn-workout-image" class="btn-secondary">Choose Image</button>
+              <button id="btn-workout-image-clear" class="btn-danger btn-small hidden">Remove</button>
+            </div>
+            <input type="file" id="workout-image-input" accept="image/*" class="hidden">
+          </div>
         </div>
         <div class="editor-section">
           <h3>Timing</h3>
@@ -296,7 +311,7 @@
       <div class="modal-content">
         <div class="modal-header">
           <h3 id="modal-set-title">Edit Set</h3>
-          <button id="btn-modal-close" class="ctrl-btn ctrl-btn-small" aria-label="Close">
+          <button id="btn-modal-close" class="nav-btn" aria-label="Close">
             <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
           </button>
         </div>
@@ -335,7 +350,7 @@
               <option value="bell">Bell</option>
             </select>
           </div>
-          <div class="editor-row">
+          <div class="editor-row editor-row-stack">
             <label>Exercise Image</label>
             <div class="image-upload-area">
               <img id="set-image-preview" class="set-image-preview hidden" alt="Preview">
@@ -344,7 +359,7 @@
               <input type="file" id="set-image-input" accept="image/*" class="hidden">
             </div>
           </div>
-          <div class="editor-row">
+          <div class="editor-row editor-row-stack">
             <label>Exercise Video (optional)</label>
             <div class="image-upload-area">
               <video id="set-video-preview" class="set-video-preview hidden" muted playsinline loop></video>

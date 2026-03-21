@@ -29,6 +29,7 @@ const PHASE_COLORS = {
 const DEFAULT_WORKOUT = {
   id: 'classic-tabata',
   name: 'Classic Tabata',
+  image: null,
   initialCountdown: 7,
   warmupDuration: 0,
   sets: Array.from({ length: 8 }, (_, i) => ({
@@ -46,17 +47,6 @@ const DEFAULT_WORKOUT = {
   cooldownDuration: 0
 };
 
-const QUOTES = [
-  ['"The journey of a thousand miles begins with one step."', 'Lao Tzu'],
-  ['"It does not matter how slowly you go as long as you do not stop."', 'Confucius'],
-  ['"The only bad workout is the one that didn\'t happen."', 'Unknown'],
-  ['"Strength does not come from the body. It comes from the will."', 'Unknown'],
-  ['"Push yourself, because no one else is going to do it for you."', 'Unknown'],
-  ['"Your body can stand almost anything. It\'s your mind you have to convince."', 'Unknown'],
-  ['"The pain you feel today will be the strength you feel tomorrow."', 'Arnold Schwarzenegger'],
-  ['"Success is walking from failure to failure with no loss of enthusiasm."', 'Winston Churchill'],
-];
-
 // ─── State ───────────────────────────────────────────────────
 const state = {
   workouts: [],
@@ -71,7 +61,8 @@ const state = {
     voiceEnabled: true,
     voiceAnnounce: 'all',
     theme: 'dark',
-    lastWorkout: null
+    lastWorkout: null,
+    lastActiveWorkoutId: null
   },
   timer: {
     phase: PHASES.IDLE,
@@ -84,6 +75,8 @@ const state = {
     targetTime: 0,
     interval: null,
     totalElapsedInterval: null,
+    pausedElapsed: 0,
+    startTime: 0,
     playedSounds: new Set(),
     wakeLock: null
   },
@@ -379,6 +372,7 @@ function startWorkout() {
 
   currentPhaseIdx = 0;
   state.timer.totalElapsed = 0;
+  state.timer.pausedElapsed = 0;
   state.timer.isRunning = true;
   state.timer.isPaused = false;
   state.timer.playedSounds = new Set();
@@ -473,30 +467,25 @@ function nextPhase() {
 }
 
 function prevPhase() {
-  if (currentPhaseIdx > 0) {
-    startPhase(currentPhaseIdx - 1);
-  } else {
-    startPhase(0);
-  }
+  if (currentPhaseIdx > 0) startPhase(currentPhaseIdx - 1);
+  else startPhase(0);
 }
 
 function skipToNext() {
-  if (currentPhaseIdx < phaseSequence.length - 1) {
-    startPhase(currentPhaseIdx + 1);
-  }
+  if (currentPhaseIdx < phaseSequence.length - 1) startPhase(currentPhaseIdx + 1);
 }
 
 function pauseTimer() {
   if (state.timer.isPaused) {
-    // Resume
     state.timer.isPaused = false;
     state.timer.targetTime = Date.now() + state.timer.timeRemaining * 1000;
+    state.timer.startTime = Date.now() - state.timer.pausedElapsed;
     requestWakeLock();
     startSilentAudio();
     updatePauseButton();
   } else {
-    // Pause
     state.timer.isPaused = true;
+    state.timer.pausedElapsed = Date.now() - state.timer.startTime;
     releaseWakeLock();
     updatePauseButton();
   }
@@ -510,15 +499,16 @@ function resetTimer() {
   state.timer.phase = PHASES.IDLE;
   releaseWakeLock();
   stopSilentAudio();
-  showScreen('screen-home');
+  showScreen('screen-workout-start');
+  updateWorkoutStartScreen();
 }
 
 function startElapsedCounter() {
   clearInterval(state.timer.totalElapsedInterval);
-  const startTime = Date.now();
+  state.timer.startTime = Date.now();
   state.timer.totalElapsedInterval = setInterval(() => {
     if (!state.timer.isPaused) {
-      state.timer.totalElapsed = Math.floor((Date.now() - startTime) / 1000);
+      state.timer.totalElapsed = Math.floor((Date.now() - state.timer.startTime) / 1000);
       updateElapsedDisplay();
     }
   }, 500);
@@ -560,12 +550,26 @@ function showScreen(id) {
   document.getElementById(id).classList.add('active');
 }
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function calcWorkoutTotalTime(w) {
+  let t = (w.initialCountdown || 0) + (w.warmupDuration || 0) + (w.cooldownDuration || 0);
+  const cycleTime = w.sets.reduce((sum, s) => sum + s.exerciseDuration + s.restDuration, 0);
+  t += cycleTime * w.numberOfCycles;
+  t += (w.recoveryDuration || 0) * Math.max(0, w.numberOfCycles - 1);
+  return t;
+}
+
 // ─── Timer UI Updates ───────────────────────────────────────
 function updateTimerUI() {
   const p = phaseSequence[currentPhaseIdx];
   const workout = getActiveWorkout();
   const set = p.setIndex >= 0 ? workout.sets[p.setIndex] : null;
-  const timerMain = document.querySelector('.timer-main');
+  const timerBottom = document.querySelector('.timer-bottom');
 
   // Phase label
   document.getElementById('timer-phase-label').textContent = p.phase.toUpperCase();
@@ -575,7 +579,6 @@ function updateTimerUI() {
   if (p.phase === PHASES.EXERCISE && set) {
     nameEl.textContent = set.name;
   } else if (p.phase === PHASES.REST && set) {
-    // During rest, show what's next
     const nextSet = getNextExerciseSet(currentPhaseIdx);
     nameEl.textContent = nextSet ? `Next: ${nextSet.name}` : 'Rest';
   } else if (p.phase === PHASES.RECOVERY) {
@@ -590,18 +593,18 @@ function updateTimerUI() {
   }
 
   // Phase color class
-  timerMain.className = 'timer-main';
+  timerBottom.className = 'timer-bottom';
   const countdownEl = document.getElementById('timer-countdown');
   const nameElRef = document.getElementById('timer-exercise-name');
   countdownEl.classList.remove('custom-color');
   nameElRef.classList.remove('custom-color');
 
   if (p.phase === PHASES.EXERCISE && set?.color) {
-    timerMain.style.setProperty('--set-color', set.color);
+    timerBottom.style.setProperty('--set-color', set.color);
     countdownEl.classList.add('custom-color');
     nameElRef.classList.add('custom-color');
   } else {
-    timerMain.classList.add(`phase-${PHASE_COLORS[p.phase] || 'exercise'}`);
+    timerBottom.classList.add(`phase-${PHASE_COLORS[p.phase] || 'exercise'}`);
   }
 
   // Image/Video
@@ -612,9 +615,9 @@ function updateTimerUI() {
   const currentCycleDisplay = p.cycle >= 0 ? p.cycle + 1 : (p.phase === PHASES.COUNTDOWN || p.phase === PHASES.WARMUP ? 0 : workout.numberOfCycles);
 
   document.getElementById('stat-set').textContent = pad2(currentSetDisplay);
-  document.getElementById('stat-set-total').textContent = pad2(workout.sets.length);
+  document.getElementById('stat-set-total').textContent = '/' + pad2(workout.sets.length);
   document.getElementById('stat-cycle').textContent = pad2(currentCycleDisplay);
-  document.getElementById('stat-cycle-total').textContent = pad2(workout.numberOfCycles);
+  document.getElementById('stat-cycle-total').textContent = '/' + pad2(workout.numberOfCycles);
 
   updateTimerCountdown();
   updatePauseButton();
@@ -629,10 +632,8 @@ function updateTimerMedia(p, workout) {
   if (p.phase === PHASES.EXERCISE) {
     mediaSet = p.setIndex >= 0 ? workout.sets[p.setIndex] : null;
   } else if (p.phase === PHASES.REST || p.phase === PHASES.RECOVERY) {
-    // Show next exercise's image
     mediaSet = getNextExerciseSet(currentPhaseIdx);
   } else if (p.phase === PHASES.COUNTDOWN || p.phase === PHASES.WARMUP) {
-    // Show first exercise
     mediaSet = workout.sets[0] || null;
   }
 
@@ -675,14 +676,89 @@ function updatePauseButton() {
   document.getElementById('play-icon').classList.toggle('hidden', !state.timer.isPaused);
 }
 
-// ─── Home Screen ────────────────────────────────────────────
-function updateHomeScreen() {
-  const workout = getActiveWorkout();
-  document.getElementById('loaded-preset-name').textContent = workout?.name || 'None';
-  document.getElementById('last-workout-date').textContent = state.settings.lastWorkout || 'Never';
+// ─── Home Screen (Workout List) ─────────────────────────────
+function renderHomeWorkoutList() {
+  const list = document.getElementById('workout-list');
+  list.innerHTML = '';
+  state.workouts.forEach(w => {
+    const card = document.createElement('div');
+    card.className = 'workout-card';
+    const totalTime = calcWorkoutTotalTime(w);
+    // Get first set image or workout image for thumbnail
+    const thumbSrc = w.image || (w.sets[0]?.image) || null;
+    card.innerHTML = `
+      <div class="workout-card-thumb">
+        ${thumbSrc
+          ? `<img src="${thumbSrc}" alt="${escapeHtml(w.name)}">`
+          : `<svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>`
+        }
+      </div>
+      <div class="workout-card-info">
+        <div class="workout-card-name">${escapeHtml(w.name)}</div>
+        <div class="workout-card-detail">${w.sets.length} sets &middot; ${w.numberOfCycles} cycle${w.numberOfCycles > 1 ? 's' : ''} &middot; ~${formatTime(totalTime)}</div>
+      </div>
+      <div class="workout-card-actions">
+        <button class="btn-edit" aria-label="Edit">
+          <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        </button>
+        <button class="btn-delete" aria-label="Delete">
+          <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+        </button>
+      </div>
+    `;
+    // Click on card info/thumb → open workout start screen
+    const clickArea = card.querySelector('.workout-card-info');
+    const thumbArea = card.querySelector('.workout-card-thumb');
+    const openStart = () => {
+      state.activeWorkoutId = w.id;
+      saveSettings();
+      showScreen('screen-workout-start');
+      updateWorkoutStartScreen();
+    };
+    clickArea.addEventListener('click', openStart);
+    thumbArea.addEventListener('click', openStart);
 
-  const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
-  document.getElementById('home-quote').innerHTML = `<em>${q[0]}</em> — ${q[1]}`;
+    // Edit
+    card.querySelector('.btn-edit').addEventListener('click', e => {
+      e.stopPropagation();
+      openWorkoutEditor(w);
+    });
+    // Delete
+    card.querySelector('.btn-delete').addEventListener('click', e => {
+      e.stopPropagation();
+      if (state.workouts.length <= 1) return alert('You need at least one workout.');
+      if (confirm(`Delete "${w.name}"?`)) {
+        deleteWorkout(w.id).then(() => renderHomeWorkoutList());
+      }
+    });
+    list.appendChild(card);
+  });
+}
+
+// ─── Workout Start Screen ───────────────────────────────────
+function updateWorkoutStartScreen() {
+  const workout = getActiveWorkout();
+  if (!workout) return;
+
+  document.getElementById('start-workout-name').textContent = workout.name;
+  const totalTime = calcWorkoutTotalTime(workout);
+  document.getElementById('start-workout-detail').textContent =
+    `${workout.sets.length} sets \u00B7 ${workout.numberOfCycles} cycle${workout.numberOfCycles > 1 ? 's' : ''} \u00B7 ~${formatTime(totalTime)}`;
+  document.getElementById('start-last-workout').textContent =
+    `Last Workout: ${state.settings.lastWorkout || 'Never'}`;
+
+  // Workout image
+  const imgEl = document.getElementById('start-workout-image');
+  const placeholder = document.getElementById('start-image-placeholder');
+  const imgSrc = workout.image || (workout.sets[0]?.image) || null;
+  if (imgSrc) {
+    imgEl.src = imgSrc;
+    imgEl.classList.remove('hidden');
+    placeholder.classList.add('hidden');
+  } else {
+    imgEl.classList.add('hidden');
+    placeholder.classList.remove('hidden');
+  }
 }
 
 // ─── Settings Screen ────────────────────────────────────────
@@ -713,66 +789,12 @@ function saveSettingsFromUI() {
   saveSettings();
 }
 
-// ─── Workouts List ──────────────────────────────────────────
-function renderWorkoutList() {
-  const list = document.getElementById('workout-list');
-  list.innerHTML = '';
-  state.workouts.forEach(w => {
-    const card = document.createElement('div');
-    card.className = `workout-card${w.id === state.activeWorkoutId ? ' selected' : ''}`;
-    const totalTime = calcWorkoutTotalTime(w);
-    card.innerHTML = `
-      <div class="workout-card-info">
-        <div class="workout-card-name">${escapeHtml(w.name)}</div>
-        <div class="workout-card-detail">${w.sets.length} sets &middot; ${w.numberOfCycles} cycle${w.numberOfCycles > 1 ? 's' : ''} &middot; ~${formatTime(totalTime)}</div>
-      </div>
-      <div class="workout-card-actions">
-        <button class="btn-edit" aria-label="Edit">
-          <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-        </button>
-        <button class="btn-delete" aria-label="Delete">
-          <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-        </button>
-      </div>
-    `;
-    // Select workout
-    card.querySelector('.workout-card-info').addEventListener('click', () => {
-      state.activeWorkoutId = w.id;
-      saveSettings();
-      updateHomeScreen();
-      renderWorkoutList();
-      showScreen('screen-home');
-    });
-    // Edit
-    card.querySelector('.btn-edit').addEventListener('click', e => {
-      e.stopPropagation();
-      openWorkoutEditor(w);
-    });
-    // Delete
-    card.querySelector('.btn-delete').addEventListener('click', e => {
-      e.stopPropagation();
-      if (state.workouts.length <= 1) return alert('You need at least one workout.');
-      if (confirm(`Delete "${w.name}"?`)) {
-        deleteWorkout(w.id).then(() => renderWorkoutList());
-      }
-    });
-    list.appendChild(card);
-  });
-}
-
-function calcWorkoutTotalTime(w) {
-  let t = w.initialCountdown + w.warmupDuration + w.cooldownDuration;
-  const cycleTime = w.sets.reduce((sum, s) => sum + s.exerciseDuration + s.restDuration, 0);
-  t += cycleTime * w.numberOfCycles;
-  t += w.recoveryDuration * Math.max(0, w.numberOfCycles - 1);
-  return t;
-}
-
 // ─── Workout Editor ─────────────────────────────────────────
 function openWorkoutEditor(workout) {
   state.editingWorkout = workout ? structuredClone(workout) : {
     id: crypto.randomUUID(),
     name: 'New Workout',
+    image: null,
     initialCountdown: 7,
     warmupDuration: 0,
     sets: [{
@@ -798,6 +820,18 @@ function openWorkoutEditor(workout) {
   document.getElementById('edit-cycles').value = state.editingWorkout.numberOfCycles;
   document.getElementById('edit-recovery').value = state.editingWorkout.recoveryDuration;
   document.getElementById('edit-cooldown').value = state.editingWorkout.cooldownDuration;
+
+  // Workout image preview
+  const imgPreview = document.getElementById('edit-workout-image-preview');
+  const imgClear = document.getElementById('btn-workout-image-clear');
+  if (state.editingWorkout.image) {
+    imgPreview.src = state.editingWorkout.image;
+    imgPreview.classList.remove('hidden');
+    imgClear.classList.remove('hidden');
+  } else {
+    imgPreview.classList.add('hidden');
+    imgClear.classList.add('hidden');
+  }
 
   renderSetsList();
   showScreen('screen-editor');
@@ -834,10 +868,17 @@ function saveWorkoutFromEditor() {
   w.cooldownDuration = parseInt(document.getElementById('edit-cooldown').value) || 0;
   w.sets = state.editingSets;
 
+  // Save workout image
+  const imgPreview = document.getElementById('edit-workout-image-preview');
+  if (!imgPreview.classList.contains('hidden') && imgPreview.src) {
+    w.image = imgPreview.src;
+  } else {
+    w.image = null;
+  }
+
   saveWorkout(w).then(() => {
-    renderWorkoutList();
-    updateHomeScreen();
-    showScreen('screen-workouts');
+    renderHomeWorkoutList();
+    showScreen('screen-home');
   });
 }
 
@@ -886,9 +927,7 @@ function openSetEditor(idx) {
     vidClear.classList.add('hidden');
   }
 
-  // Show/hide delete button
   document.getElementById('btn-set-delete').classList.toggle('hidden', idx < 0);
-
   document.getElementById('modal-set').classList.remove('hidden');
 }
 
@@ -990,33 +1029,46 @@ async function importWorkouts(file) {
       loadSettingsUI();
     }
     alert(`Imported ${data.workouts.length} workout(s) successfully.`);
-    renderWorkoutList();
-    updateHomeScreen();
+    renderHomeWorkoutList();
   } catch (e) {
     alert('Error importing file: ' + e.message);
   }
 }
 
-// ─── Utilities ──────────────────────────────────────────────
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // ─── Event Binding ──────────────────────────────────────────
 function bindEvents() {
   // Home
-  document.getElementById('btn-play').addEventListener('click', startWorkout);
-  document.getElementById('btn-home-reset').addEventListener('click', () => {
-    updateHomeScreen();
+  document.getElementById('btn-add-workout-home').addEventListener('click', () => {
+    openWorkoutEditor(null);
   });
   document.getElementById('btn-settings').addEventListener('click', () => {
     loadSettingsUI();
     showScreen('screen-settings');
   });
 
+  // Workout Start screen
+  document.getElementById('btn-start-back').addEventListener('click', () => {
+    showScreen('screen-home');
+    renderHomeWorkoutList();
+  });
+  document.getElementById('btn-start-play').addEventListener('click', startWorkout);
+  document.getElementById('btn-start-settings').addEventListener('click', () => {
+    loadSettingsUI();
+    showScreen('screen-settings');
+  });
+  document.getElementById('btn-return-home').addEventListener('click', () => {
+    showScreen('screen-home');
+    renderHomeWorkoutList();
+  });
+
   // Timer controls
+  document.getElementById('btn-timer-back').addEventListener('click', () => {
+    if (state.timer.isRunning) {
+      if (confirm('End this workout?')) resetTimer();
+    } else {
+      resetTimer();
+    }
+  });
   document.getElementById('btn-pause').addEventListener('click', pauseTimer);
   document.getElementById('btn-prev').addEventListener('click', prevPhase);
   document.getElementById('btn-next').addEventListener('click', skipToNext);
@@ -1027,17 +1079,15 @@ function bindEvents() {
   // Complete
   document.getElementById('btn-complete-home').addEventListener('click', () => {
     showScreen('screen-home');
-    updateHomeScreen();
+    renderHomeWorkoutList();
   });
 
   // Settings
   document.getElementById('btn-settings-back').addEventListener('click', () => {
     saveSettingsFromUI();
+    // Go back to wherever we came from
     showScreen('screen-home');
-  });
-  document.getElementById('btn-manage-workouts').addEventListener('click', () => {
-    renderWorkoutList();
-    showScreen('screen-workouts');
+    renderHomeWorkoutList();
   });
 
   // Settings change handlers
@@ -1056,21 +1106,35 @@ function bindEvents() {
     e.target.value = '';
   });
 
-  // Workouts list
-  document.getElementById('btn-workouts-back').addEventListener('click', () => {
-    showScreen('screen-settings');
-  });
-  document.getElementById('btn-add-workout').addEventListener('click', () => {
-    openWorkoutEditor(null);
-  });
-
   // Editor
   document.getElementById('btn-editor-back').addEventListener('click', () => {
-    showScreen('screen-workouts');
+    showScreen('screen-home');
+    renderHomeWorkoutList();
   });
   document.getElementById('btn-editor-save').addEventListener('click', saveWorkoutFromEditor);
   document.getElementById('btn-add-set').addEventListener('click', () => {
     openSetEditor(-1);
+  });
+
+  // Workout image upload
+  document.getElementById('btn-workout-image').addEventListener('click', () => {
+    document.getElementById('workout-image-input').click();
+  });
+  document.getElementById('workout-image-input').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const dataUrl = await resizeImage(file, 600);
+    const preview = document.getElementById('edit-workout-image-preview');
+    preview.src = dataUrl;
+    preview.classList.remove('hidden');
+    document.getElementById('btn-workout-image-clear').classList.remove('hidden');
+    state.editingWorkout.image = dataUrl;
+  });
+  document.getElementById('btn-workout-image-clear').addEventListener('click', () => {
+    document.getElementById('edit-workout-image-preview').src = '';
+    document.getElementById('edit-workout-image-preview').classList.add('hidden');
+    document.getElementById('btn-workout-image-clear').classList.add('hidden');
+    state.editingWorkout.image = null;
   });
 
   // Number input +/- buttons
@@ -1091,7 +1155,7 @@ function bindEvents() {
   document.getElementById('btn-set-save').addEventListener('click', saveSetFromModal);
   document.getElementById('btn-set-delete').addEventListener('click', deleteSet);
 
-  // Image upload
+  // Image upload for sets
   document.getElementById('btn-set-image').addEventListener('click', () => {
     document.getElementById('set-image-input').click();
   });
@@ -1103,7 +1167,6 @@ function bindEvents() {
     preview.src = dataUrl;
     preview.classList.remove('hidden');
     document.getElementById('btn-set-image-clear').classList.remove('hidden');
-    // Store directly on the editing set
     if (state.editingSetIndex >= 0) {
       state.editingSets[state.editingSetIndex].image = dataUrl;
     }
@@ -1176,7 +1239,7 @@ function generateIcons() {
     canvas.height = size;
     const ctx = canvas.getContext('2d');
     // Background
-    ctx.fillStyle = '#1a1a1a';
+    ctx.fillStyle = '#1B2138';
     ctx.beginPath();
     ctx.roundRect(0, 0, size, size, size * 0.2);
     ctx.fill();
@@ -1212,7 +1275,6 @@ function generateIcons() {
     canvas.toBlob(blob => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
-      // Set apple-touch-icon
       if (size === 180) {
         let link = document.querySelector('link[rel="apple-touch-icon"]');
         if (link) link.href = url;
@@ -1227,7 +1289,7 @@ async function init() {
   await loadData();
 
   document.documentElement.setAttribute('data-theme', state.settings.theme);
-  updateHomeScreen();
+  renderHomeWorkoutList();
   bindEvents();
   registerSW();
   generateIcons();
