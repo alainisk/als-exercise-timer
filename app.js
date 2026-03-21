@@ -89,8 +89,11 @@ const state = {
 
 // ─── Storage (IndexedDB) ────────────────────────────────────
 const DB_NAME = 'AlsExerciseTimer';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let db = null;
+
+// Map of video setId -> blobURL for playback
+const videoBlobURLs = {};
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -99,10 +102,49 @@ function openDB() {
       const d = e.target.result;
       if (!d.objectStoreNames.contains('workouts')) d.createObjectStore('workouts', { keyPath: 'id' });
       if (!d.objectStoreNames.contains('settings')) d.createObjectStore('settings', { keyPath: 'key' });
+      if (!d.objectStoreNames.contains('videos')) d.createObjectStore('videos', { keyPath: 'setId' });
     };
     req.onsuccess = e => { db = e.target.result; resolve(db); };
     req.onerror = e => reject(e.target.error);
   });
+}
+
+function dbGet(store, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+async function saveVideoBlob(setId, blob, mimeType) {
+  await dbPut('videos', { setId, blob, mimeType });
+  // Revoke old URL if exists
+  if (videoBlobURLs[setId]) URL.revokeObjectURL(videoBlobURLs[setId]);
+  videoBlobURLs[setId] = URL.createObjectURL(blob);
+}
+
+async function getVideoBlobURL(setId) {
+  if (videoBlobURLs[setId]) return videoBlobURLs[setId];
+  try {
+    const record = await dbGet('videos', setId);
+    if (record?.blob) {
+      videoBlobURLs[setId] = URL.createObjectURL(record.blob);
+      return videoBlobURLs[setId];
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+async function deleteVideoBlob(setId) {
+  try {
+    if (videoBlobURLs[setId]) {
+      URL.revokeObjectURL(videoBlobURLs[setId]);
+      delete videoBlobURLs[setId];
+    }
+    await dbDelete('videos', setId);
+  } catch (e) { /* ignore */ }
 }
 
 function dbPut(store, data) {
@@ -641,13 +683,21 @@ function updateTimerMedia(p, workout) {
 
   imgEl.classList.add('hidden');
   vidEl.classList.add('hidden');
+  vidEl.pause();
   placeholder.classList.remove('hidden');
 
   if (mediaSet?.video) {
-    vidEl.src = mediaSet.video;
-    vidEl.classList.remove('hidden');
-    placeholder.classList.add('hidden');
-    vidEl.play().catch(() => {});
+    // Get blob URL for video playback
+    const setId = mediaSet.id;
+    getVideoBlobURL(setId).then(blobURL => {
+      if (blobURL) {
+        vidEl.src = blobURL;
+        vidEl.load();
+        vidEl.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+        vidEl.play().catch(() => {});
+      }
+    });
   } else if (mediaSet?.image) {
     imgEl.src = mediaSet.image;
     imgEl.classList.remove('hidden');
@@ -925,10 +975,17 @@ function openSetEditor(idx) {
   const vidPreview = document.getElementById('set-video-preview');
   const vidClear = document.getElementById('btn-set-video-clear');
   if (set.video) {
-    vidPreview.src = set.video;
-    vidPreview.classList.remove('hidden');
-    vidClear.classList.remove('hidden');
+    getVideoBlobURL(set.id).then(blobURL => {
+      if (blobURL) {
+        vidPreview.src = blobURL;
+        vidPreview.load();
+        vidPreview.classList.remove('hidden');
+        vidClear.classList.remove('hidden');
+      }
+    });
   } else {
+    vidPreview.pause();
+    vidPreview.removeAttribute('src');
     vidPreview.classList.add('hidden');
     vidClear.classList.add('hidden');
   }
@@ -943,7 +1000,7 @@ function closeSetModal() {
   document.getElementById('set-video-input').value = '';
 }
 
-function saveSetFromModal() {
+async function saveSetFromModal() {
   const set = {
     id: state.editingSetIndex >= 0 ? state.editingSets[state.editingSetIndex].id : crypto.randomUUID(),
     name: document.getElementById('set-name').value.trim() || 'Unnamed',
@@ -971,12 +1028,20 @@ function saveSetFromModal() {
     set.image = null;
   }
 
-  // Check for new video
+  // Video — keep the blob reference marker if video exists
   const vidPreview = document.getElementById('set-video-preview');
   if (!vidPreview.classList.contains('hidden') && vidPreview.src) {
-    set.video = vidPreview.src;
+    set.video = 'blob:' + set.id;
+    // If this was a new set being added, migrate the temp video blob
+    if (state.editingSetIndex < 0 && videoBlobURLs['_new_set_video']) {
+      const tempRecord = await dbGet('videos', '_new_set_video');
+      if (tempRecord) {
+        await saveVideoBlob(set.id, tempRecord.blob, tempRecord.mimeType);
+        await deleteVideoBlob('_new_set_video');
+      }
+    }
   }
-  if (document.getElementById('btn-set-video-clear').classList.contains('hidden') && !vidPreview.src) {
+  if (document.getElementById('btn-set-video-clear').classList.contains('hidden')) {
     set.video = null;
   }
 
@@ -1043,7 +1108,6 @@ async function importWorkouts(file) {
 
 // ─── Cloud Sync (GitHub Gist) ───────────────────────────────
 const GIST_FILENAME = 'als-exercise-timer-sync.json';
-let syncInterval = null;
 
 function getSyncToken() {
   return state.settings.syncToken || '';
@@ -1195,28 +1259,7 @@ async function pullFromGist() {
   }
 }
 
-function startAutoSync() {
-  stopAutoSync();
-  if (!getSyncToken()) return;
-  // Sync every 30 seconds
-  syncInterval = setInterval(() => {
-    if (!state.timer.isRunning) pullFromGist();
-  }, 30000);
-  // Also sync when tab becomes visible
-  document.addEventListener('visibilitychange', onVisibilitySync);
-}
-
-function stopAutoSync() {
-  if (syncInterval) clearInterval(syncInterval);
-  syncInterval = null;
-  document.removeEventListener('visibilitychange', onVisibilitySync);
-}
-
-function onVisibilitySync() {
-  if (document.visibilityState === 'visible' && getSyncToken() && !state.timer.isRunning) {
-    pullFromGist();
-  }
-}
+// No auto-sync — manual only via "Sync Now" button
 
 function loadSyncUI() {
   const tokenInput = document.getElementById('sync-token');
@@ -1247,7 +1290,6 @@ async function connectSync() {
     state.settings.syncToken = token;
     await saveSettings();
     await pullFromGist();
-    startAutoSync();
   } catch (e) {
     updateSyncUI('disconnected', 'Invalid token');
     alert('Could not connect. Check your token and try again.');
@@ -1258,7 +1300,6 @@ async function disconnectSync() {
   state.settings.syncToken = '';
   state.settings.syncGistId = '';
   await saveSettings();
-  stopAutoSync();
   document.getElementById('sync-token').value = '';
   updateSyncUI('disconnected', 'Not connected');
 }
@@ -1421,7 +1462,7 @@ function bindEvents() {
     }
   });
 
-  // Video upload
+  // Video upload — store as Blob in IndexedDB, use Blob URL for playback
   document.getElementById('btn-set-video').addEventListener('click', () => {
     document.getElementById('set-video-input').click();
   });
@@ -1432,20 +1473,37 @@ function bindEvents() {
       alert('Video must be under 50MB.');
       return;
     }
-    const dataUrl = await readFileAsDataURL(file);
+    // Validate format
+    const validTypes = ['video/mp4', 'video/quicktime', 'video/x-m4v'];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(mp4|mov|m4v)$/i)) {
+      alert('Please use MP4 or MOV format. Other formats may not play on iOS.');
+    }
+    const setId = state.editingSetIndex >= 0
+      ? state.editingSets[state.editingSetIndex].id
+      : '_new_set_video';
+    // Store blob and get URL
+    await saveVideoBlob(setId, file, file.type);
+    const blobURL = videoBlobURLs[setId];
     const preview = document.getElementById('set-video-preview');
-    preview.src = dataUrl;
+    preview.src = blobURL;
+    preview.load();
     preview.classList.remove('hidden');
     document.getElementById('btn-set-video-clear').classList.remove('hidden');
     if (state.editingSetIndex >= 0) {
-      state.editingSets[state.editingSetIndex].video = dataUrl;
+      // Mark that this set has video (store the setId as reference)
+      state.editingSets[state.editingSetIndex].video = 'blob:' + setId;
     }
   });
   document.getElementById('btn-set-video-clear').addEventListener('click', () => {
-    document.getElementById('set-video-preview').src = '';
-    document.getElementById('set-video-preview').classList.add('hidden');
+    const preview = document.getElementById('set-video-preview');
+    preview.pause();
+    preview.removeAttribute('src');
+    preview.load();
+    preview.classList.add('hidden');
     document.getElementById('btn-set-video-clear').classList.add('hidden');
     if (state.editingSetIndex >= 0) {
+      const setId = state.editingSets[state.editingSetIndex].id;
+      deleteVideoBlob(setId);
       state.editingSets[state.editingSetIndex].video = null;
     }
   });
@@ -1535,11 +1593,9 @@ async function init() {
   registerSW();
   generateIcons();
 
-  // Start cloud sync if token exists
+  // Load sync UI state
   if (getSyncToken()) {
-    startAutoSync();
-    // Initial pull on load
-    pullFromGist();
+    updateSyncUI('connected', 'Connected');
   }
 }
 
