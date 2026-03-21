@@ -62,7 +62,9 @@ const state = {
     voiceAnnounce: 'all',
     theme: 'dark',
     lastWorkout: null,
-    lastActiveWorkoutId: null
+    lastActiveWorkoutId: null,
+    syncToken: '',
+    syncGistId: ''
   },
   timer: {
     phase: PHASES.IDLE,
@@ -728,7 +730,10 @@ function renderHomeWorkoutList() {
       e.stopPropagation();
       if (state.workouts.length <= 1) return alert('You need at least one workout.');
       if (confirm(`Delete "${w.name}"?`)) {
-        deleteWorkout(w.id).then(() => renderHomeWorkoutList());
+        deleteWorkout(w.id).then(() => {
+          renderHomeWorkoutList();
+          pushToGist(); // Sync deletion to cloud
+        });
       }
     });
     list.appendChild(card);
@@ -879,6 +884,7 @@ function saveWorkoutFromEditor() {
   saveWorkout(w).then(() => {
     renderHomeWorkoutList();
     showScreen('screen-home');
+    pushToGist(); // Sync to cloud
   });
 }
 
@@ -1035,6 +1041,228 @@ async function importWorkouts(file) {
   }
 }
 
+// ─── Cloud Sync (GitHub Gist) ───────────────────────────────
+const GIST_FILENAME = 'als-exercise-timer-sync.json';
+let syncInterval = null;
+
+function getSyncToken() {
+  return state.settings.syncToken || '';
+}
+
+function updateSyncUI(status, text) {
+  const dot = document.getElementById('sync-dot');
+  const label = document.getElementById('sync-status-text');
+  if (!dot || !label) return;
+  dot.className = 'sync-dot ' + status;
+  label.textContent = text;
+}
+
+async function gistApiCall(method, url, body = null) {
+  const token = getSyncToken();
+  if (!token) throw new Error('No sync token');
+  const opts = {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    }
+  };
+  if (body) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const resp = await fetch(url, opts);
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`GitHub API ${resp.status}: ${err}`);
+  }
+  return resp.json();
+}
+
+async function findSyncGist() {
+  // Check if we have a stored gist ID that works
+  if (state.settings.syncGistId) {
+    try {
+      const gist = await gistApiCall('GET', `https://api.github.com/gists/${state.settings.syncGistId}`);
+      if (gist.files && gist.files[GIST_FILENAME]) return gist;
+    } catch (e) { /* gist may have been deleted, search for it */ }
+  }
+  // Search user's gists for one with our filename
+  const gists = await gistApiCall('GET', 'https://api.github.com/gists?per_page=100');
+  for (const g of gists) {
+    if (g.files && g.files[GIST_FILENAME]) {
+      state.settings.syncGistId = g.id;
+      await saveSettings();
+      return await gistApiCall('GET', `https://api.github.com/gists/${g.id}`);
+    }
+  }
+  return null;
+}
+
+async function createSyncGist() {
+  const data = buildSyncPayload();
+  const gist = await gistApiCall('POST', 'https://api.github.com/gists', {
+    description: "Al's Exercise Timer - Workout Sync",
+    public: false,
+    files: {
+      [GIST_FILENAME]: { content: JSON.stringify(data, null, 2) }
+    }
+  });
+  state.settings.syncGistId = gist.id;
+  await saveSettings();
+  return gist;
+}
+
+function buildSyncPayload() {
+  return {
+    version: 1,
+    lastModified: new Date().toISOString(),
+    workouts: state.workouts
+  };
+}
+
+async function pushToGist() {
+  if (!getSyncToken()) return;
+  try {
+    updateSyncUI('syncing', 'Syncing...');
+    let gist = await findSyncGist();
+    const data = buildSyncPayload();
+    if (gist) {
+      await gistApiCall('PATCH', `https://api.github.com/gists/${gist.id}`, {
+        files: {
+          [GIST_FILENAME]: { content: JSON.stringify(data, null, 2) }
+        }
+      });
+    } else {
+      await createSyncGist();
+    }
+    updateSyncUI('connected', 'Synced ' + new Date().toLocaleTimeString());
+  } catch (e) {
+    console.error('Sync push error:', e);
+    updateSyncUI('disconnected', 'Sync error');
+  }
+}
+
+async function pullFromGist() {
+  if (!getSyncToken()) return;
+  try {
+    updateSyncUI('syncing', 'Syncing...');
+    const gist = await findSyncGist();
+    if (!gist) {
+      // No gist yet — create one with our current data
+      await createSyncGist();
+      updateSyncUI('connected', 'Synced ' + new Date().toLocaleTimeString());
+      return;
+    }
+    const content = gist.files[GIST_FILENAME]?.content;
+    if (!content) return;
+    const remote = JSON.parse(content);
+    if (!remote.workouts || !Array.isArray(remote.workouts)) return;
+
+    // Merge: remote workouts override local by ID, add new ones
+    const localMap = new Map(state.workouts.map(w => [w.id, w]));
+    const remoteMap = new Map(remote.workouts.map(w => [w.id, w]));
+
+    // Add/update all remote workouts locally
+    for (const [id, rw] of remoteMap) {
+      localMap.set(id, rw);
+    }
+
+    // Also push any local-only workouts to remote on next push
+    state.workouts = Array.from(localMap.values());
+
+    // Save all to IndexedDB
+    for (const w of state.workouts) {
+      await dbPut('workouts', w);
+    }
+
+    if (state.activeWorkoutId && !localMap.has(state.activeWorkoutId)) {
+      state.activeWorkoutId = state.workouts[0]?.id || null;
+      await saveSettings();
+    }
+
+    renderHomeWorkoutList();
+    updateSyncUI('connected', 'Synced ' + new Date().toLocaleTimeString());
+
+    // Push back to include any local-only workouts
+    if (state.workouts.length !== remote.workouts.length) {
+      await pushToGist();
+    }
+  } catch (e) {
+    console.error('Sync pull error:', e);
+    updateSyncUI('disconnected', 'Sync error');
+  }
+}
+
+function startAutoSync() {
+  stopAutoSync();
+  if (!getSyncToken()) return;
+  // Sync every 30 seconds
+  syncInterval = setInterval(() => {
+    if (!state.timer.isRunning) pullFromGist();
+  }, 30000);
+  // Also sync when tab becomes visible
+  document.addEventListener('visibilitychange', onVisibilitySync);
+}
+
+function stopAutoSync() {
+  if (syncInterval) clearInterval(syncInterval);
+  syncInterval = null;
+  document.removeEventListener('visibilitychange', onVisibilitySync);
+}
+
+function onVisibilitySync() {
+  if (document.visibilityState === 'visible' && getSyncToken() && !state.timer.isRunning) {
+    pullFromGist();
+  }
+}
+
+function loadSyncUI() {
+  const tokenInput = document.getElementById('sync-token');
+  if (tokenInput) tokenInput.value = state.settings.syncToken || '';
+  if (getSyncToken()) {
+    updateSyncUI('connected', 'Connected');
+  } else {
+    updateSyncUI('disconnected', 'Not connected');
+  }
+}
+
+async function connectSync() {
+  const token = document.getElementById('sync-token').value.trim();
+  if (!token) {
+    alert('Please enter a GitHub Personal Access Token');
+    return;
+  }
+  // Validate token
+  try {
+    updateSyncUI('syncing', 'Connecting...');
+    const resp = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json'
+      }
+    });
+    if (!resp.ok) throw new Error('Invalid token');
+    state.settings.syncToken = token;
+    await saveSettings();
+    await pullFromGist();
+    startAutoSync();
+  } catch (e) {
+    updateSyncUI('disconnected', 'Invalid token');
+    alert('Could not connect. Check your token and try again.');
+  }
+}
+
+async function disconnectSync() {
+  state.settings.syncToken = '';
+  state.settings.syncGistId = '';
+  await saveSettings();
+  stopAutoSync();
+  document.getElementById('sync-token').value = '';
+  updateSyncUI('disconnected', 'Not connected');
+}
+
 // ─── Event Binding ──────────────────────────────────────────
 function bindEvents() {
   // Home
@@ -1043,6 +1271,7 @@ function bindEvents() {
   });
   document.getElementById('btn-settings').addEventListener('click', () => {
     loadSettingsUI();
+    loadSyncUI();
     showScreen('screen-settings');
   });
 
@@ -1054,6 +1283,7 @@ function bindEvents() {
   document.getElementById('btn-start-play').addEventListener('click', startWorkout);
   document.getElementById('btn-start-settings').addEventListener('click', () => {
     loadSettingsUI();
+    loadSyncUI();
     showScreen('screen-settings');
   });
   document.getElementById('btn-return-home').addEventListener('click', () => {
@@ -1105,6 +1335,17 @@ function bindEvents() {
     if (e.target.files[0]) importWorkouts(e.target.files[0]);
     e.target.value = '';
   });
+
+  // Cloud Sync
+  document.getElementById('btn-sync-save').addEventListener('click', connectSync);
+  document.getElementById('btn-sync-now').addEventListener('click', () => {
+    if (!getSyncToken()) {
+      alert('Connect first by entering a token and clicking Connect.');
+      return;
+    }
+    pullFromGist();
+  });
+  document.getElementById('btn-sync-disconnect').addEventListener('click', disconnectSync);
 
   // Editor
   document.getElementById('btn-editor-back').addEventListener('click', () => {
@@ -1293,6 +1534,13 @@ async function init() {
   bindEvents();
   registerSW();
   generateIcons();
+
+  // Start cloud sync if token exists
+  if (getSyncToken()) {
+    startAutoSync();
+    // Initial pull on load
+    pullFromGist();
+  }
 }
 
 init();

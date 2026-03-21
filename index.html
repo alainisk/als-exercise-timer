@@ -214,9 +214,33 @@
             <input type="checkbox" id="theme-toggle" class="toggle">
           </div>
         </div>
-        <!-- Data -->
+        <!-- Cloud Sync -->
         <div class="settings-section">
-          <h3>Sync & Data</h3>
+          <h3>Cloud Sync</h3>
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <label>GitHub Token</label>
+              <div class="sync-status">
+                <span class="sync-dot" id="sync-dot"></span>
+                <span id="sync-status-text">Not connected</span>
+              </div>
+            </div>
+            <input type="password" id="sync-token" class="sync-token-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+            <p class="sync-help">
+              Create a token at <a href="https://github.com/settings/tokens?type=beta" target="_blank">github.com/settings/tokens</a><br>
+              Permissions needed: <strong>Gists</strong> (Read and Write)<br>
+              Same token on all devices = automatic sync
+            </p>
+            <div class="sync-actions">
+              <button id="btn-sync-save" class="btn-primary btn-small">Connect</button>
+              <button id="btn-sync-now" class="btn-secondary btn-small">Sync Now</button>
+              <button id="btn-sync-disconnect" class="btn-danger btn-small">Disconnect</button>
+            </div>
+          </div>
+        </div>
+        <!-- Manual Export/Import -->
+        <div class="settings-section">
+          <h3>Manual Backup</h3>
           <div class="settings-row">
             <button id="btn-export" class="btn-secondary">Export All Workouts</button>
           </div>

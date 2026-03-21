@@ -1,4 +1,4 @@
-const CACHE_NAME = 'als-timer-v2';
+const CACHE_NAME = 'als-timer-v3';
 const ASSETS = ['./index.html', './styles.css', './app.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

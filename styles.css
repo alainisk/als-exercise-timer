@@ -239,35 +239,37 @@ html, body {
 .start-top {
   position: relative;
   background: var(--bg-image);
-  min-height: 42vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  height: 42vh;
+  min-height: 240px;
+  overflow: hidden;
 }
 .start-top .nav-btn {
   position: absolute;
   top: calc(var(--safe-top) + 12px);
   left: 16px;
-  background: rgba(0,0,0,0.2);
+  background: rgba(0,0,0,0.3);
   color: #fff;
   z-index: 2;
 }
 
 .start-image-area {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px;
 }
 .start-image {
-  max-width: 200px;
-  max-height: 200px;
-  width: auto;
-  height: auto;
-  border-radius: var(--radius);
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.start-image-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 .start-image-placeholder svg {
   width: 100px;
@@ -340,35 +342,37 @@ html, body {
 .timer-top {
   position: relative;
   background: var(--bg-image);
-  min-height: 28vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  height: 28vh;
+  min-height: 180px;
+  overflow: hidden;
 }
 .timer-top .nav-btn {
   position: absolute;
   top: calc(var(--safe-top) + 12px);
   left: 16px;
-  background: rgba(0,0,0,0.2);
+  background: rgba(0,0,0,0.3);
   color: #fff;
   z-index: 2;
 }
 
 .timer-image-area {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 30px;
 }
 .timer-image {
-  max-width: 160px;
-  max-height: 160px;
-  width: auto;
-  height: auto;
-  border-radius: var(--radius);
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.timer-image-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 .timer-image-placeholder svg {
   width: 80px;
@@ -806,13 +810,53 @@ html, body {
 }
 
 @media (min-width: 768px) {
-  .start-top { min-height: 45vh; }
-  .start-image { max-width: 280px; max-height: 280px; }
-  .timer-image { max-width: 220px; max-height: 220px; }
+  .start-top { height: 45vh; }
+  .timer-top { height: 32vh; }
   .timer-countdown { font-size: 160px; }
   .timer-exercise-name { font-size: 34px; }
   .modal-content { border-radius: var(--radius); max-height: 80vh; }
   .modal { align-items: center; padding: 20px; }
+}
+
+/* ===== SYNC UI ===== */
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.sync-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.sync-dot.connected { background: #4CAF50; }
+.sync-dot.disconnected { background: var(--text-muted); }
+.sync-dot.syncing { background: #FFD700; animation: pulse 1s ease-in-out infinite; }
+.sync-token-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: monospace;
+  margin-top: 4px;
+}
+.sync-help {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 8px 0;
+}
+.sync-help a { color: var(--accent); }
+.sync-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* Prevent text selection on controls */
