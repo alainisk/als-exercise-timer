@@ -9,7 +9,7 @@ const {getSignedUrl}=require('@aws-sdk/s3-request-presigner');
 const HASH=/^[a-f0-9]{64}$/;
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const MAX_MEDIA=512*1024*1024+16;
-const PUBLIC=new Set(['index.html','app.js','family-sync.js','drive-media.js','cloud-media.js','cloud-config.js','styles.css','redesign.css','sw.js','manifest.json','favicon.png','icon-192.png','icon-512.png','privacy.html']);
+const PUBLIC=new Set(['index.html','app.js','family-sync.js','drive-media.js','cloud-media.js','cloud-config.js','styles.css','redesign.css','sw.js','manifest.json','favicon.png','icon-180.png','icon-192.png','icon-512.png','apple-touch-icon.png','stopwatch-32.png','stopwatch-180.png','stopwatch-192.png','stopwatch-512.png','privacy.html']);
 const mime={html:'text/html',js:'text/javascript',css:'text/css',json:'application/json',png:'image/png'};
 async function body(req,limit){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(Error('Request too large'),{status:413});chunks.push(chunk);}return Buffer.concat(chunks);}
 function envelope(data){return data?.version===1&&typeof data.revision==='string'&&/^[a-zA-Z0-9-]{1,80}$/.test(data.revision)&&typeof data.iv==='string'&&/^[A-Za-z0-9+/]{16}$/.test(data.iv)&&Array.isArray(data.chunks)&&data.chunks.length>0&&data.chunks.length<=24&&data.chunks.every(c=>typeof c==='string'&&c.length<=1000000&&/^[A-Za-z0-9+/=]+$/.test(c));}

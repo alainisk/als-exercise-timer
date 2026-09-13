@@ -2091,60 +2091,8 @@ function bindEvents() {
 // ─── PWA Registration ───────────────────────────────────────
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=20260913-7').catch(() => {});
+    navigator.serviceWorker.register('./sw.js?v=20260913-10').catch(() => {});
   }
-}
-
-// ─── Icon Generation ────────────────────────────────────────
-function generateIcons() {
-  [180, 192, 512].forEach(size => {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    // Background
-    ctx.fillStyle = '#1B2138';
-    ctx.beginPath();
-    ctx.roundRect(0, 0, size, size, size * 0.2);
-    ctx.fill();
-    // Circle
-    const cx = size / 2, cy = size / 2, r = size * 0.35;
-    ctx.strokeStyle = '#E86C3A';
-    ctx.lineWidth = size * 0.04;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.stroke();
-    // Play triangle
-    ctx.fillStyle = '#E86C3A';
-    ctx.beginPath();
-    const ts = size * 0.18;
-    ctx.moveTo(cx - ts * 0.3, cy - ts);
-    ctx.lineTo(cx - ts * 0.3, cy + ts);
-    ctx.lineTo(cx + ts * 0.8, cy);
-    ctx.closePath();
-    ctx.fill();
-    // Timer tick marks
-    ctx.strokeStyle = '#E86C3A';
-    ctx.lineWidth = size * 0.02;
-    for (let i = 0; i < 12; i++) {
-      const angle = (i * 30 - 90) * Math.PI / 180;
-      const inner = r - size * 0.06;
-      const outer = r - size * 0.02;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
-      ctx.lineTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
-      ctx.stroke();
-    }
-    // Save
-    canvas.toBlob(blob => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      if (size === 180) {
-        let link = document.querySelector('link[rel="apple-touch-icon"]');
-        if (link) link.href = url;
-      }
-    }, 'image/png');
-  });
 }
 
 // Read each profile through a separate connection; never change the active DB
@@ -2283,7 +2231,6 @@ async function init() {
   routesReady = true;
   if (requestedHash) await openWorkoutRoute(requestedHash); else updateWorkoutUrl();
   registerSW();
-  generateIcons();
 
   // Load sync UI state
   if (getSyncToken()) {
