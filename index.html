@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="redesign.css?v=20260913">
+  <link rel="stylesheet" href="redesign.css?v=20260913-3">
 </head>
 <body>
   <div id="app">
@@ -419,7 +419,8 @@
     <div id="profile-list" class="profile-list"></div>
     <form id="profile-form"><label for="profile-name">Add a profile</label><div class="profile-form-row"><input id="profile-name" class="editor-input" placeholder="Name" maxlength="40" required autocomplete="off"><button class="btn-primary" type="submit">Add profile</button></div><p id="profile-error" role="alert"></p></form>
   </dialog>
+  <dialog id="profile-delete-dialog" class="app-dialog" aria-labelledby="profile-delete-title"><h2 id="profile-delete-title">Delete profile?</h2><p id="profile-delete-message"></p><div class="dialog-actions"><button id="profile-delete-cancel" class="btn-secondary">Keep profile</button><button id="profile-delete-confirm" class="btn-danger">Delete profile</button></div></dialog>
   <dialog id="delete-dialog" class="app-dialog" aria-labelledby="delete-title"><h2 id="delete-title">Delete workout?</h2><p id="delete-message"></p><div class="dialog-actions"><button id="delete-cancel" class="btn-secondary">Keep workout</button><button id="delete-confirm" class="btn-danger">Delete workout</button></div></dialog>
-  <script src="app.js?v=20260913"></script>
+  <script src="app.js?v=20260913-3"></script>
 </body>
 </html>

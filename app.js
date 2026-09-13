@@ -261,11 +261,75 @@ function showProfiles() {
     button.className = 'profile-option' + (profile.id === activeProfileId ? ' selected' : '');
     button.textContent = profile.name + (profile.id === activeProfileId ? ' · Current' : '');
     button.addEventListener('click', () => switchProfile(profile.id));
-    list.appendChild(button);
+    const row = document.createElement('div');
+    row.className = 'profile-row';
+    const remove = document.createElement('button');
+    remove.className = 'profile-delete-button';
+    remove.textContent = 'Delete';
+    remove.setAttribute('aria-label', `Delete profile ${profile.name}`);
+    remove.addEventListener('click', () => requestProfileDeletion(profile));
+    row.append(button, remove);
+    list.appendChild(row);
   }
   document.getElementById('profile-error').textContent = '';
-  document.getElementById('profile-dialog').showModal();
+  const dialog = document.getElementById('profile-dialog');
+  if (!dialog.open) dialog.showModal();
 }
+let profilePendingDeletion = null;
+let deletingProfile = false;
+function requestProfileDeletion(profile) {
+  profilePendingDeletion = profile.id;
+  document.getElementById('profile-delete-message').textContent = `Delete “${profile.name}” and all of its workouts, videos and settings from this device? This cannot be undone. Cloud backups are not deleted.`;
+  document.getElementById('profile-delete-dialog').showModal();
+}
+function clearProfileData(id) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(profileDatabase(id), DB_VERSION);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      for (const [store,keyPath] of [['workouts','id'],['videos','setId'],['settings','key']]) {
+        if (!database.objectStoreNames.contains(store)) database.createObjectStore(store,{keyPath});
+      }
+    };
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      // Clear atomically instead of queuing deleteDatabase behind other open tabs.
+      const tx = database.transaction(['workouts','videos','settings'],'readwrite');
+      for (const name of ['workouts','videos','settings']) tx.objectStore(name).clear();
+      tx.objectStore('settings').put({key:'initialized',value:true});
+      tx.oncomplete = () => { database.close(); resolve(); };
+      tx.onerror = tx.onabort = () => { database.close(); reject(tx.error || new Error('Could not remove profile data.')); };
+    };
+  });
+}
+async function deleteProfile(id) {
+  if (state.timer.isRunning || switchingProfile || profileOperations || deletingProfile) return;
+  if (!profiles.some(profile => profile.id === id)) return;
+  deletingProfile = true;
+  try {
+    if (id === activeProfileId) {
+      let replacement = profiles.find(profile => profile.id !== id);
+      if (!replacement) {
+        replacement = {id:crypto.randomUUID(),name:'My profile'};
+        profiles.push(replacement);
+        persistProfiles();
+      }
+      await switchProfile(replacement.id);
+      if (activeProfileId === id) throw new Error('Could not switch profiles. Nothing was deleted.');
+    }
+    await withProfileOperation(async () => {
+      const previous = profiles;
+      const remaining = profiles.filter(profile => profile.id !== id);
+      // Reserve the registry update first; restore it if the transaction fails.
+      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({profiles:remaining,activeId:activeProfileId}));
+      try { await clearProfileData(id); }
+      catch (error) { localStorage.setItem(PROFILE_STORAGE_KEY,JSON.stringify({profiles:previous,activeId:activeProfileId})); throw error; }
+      profiles = remaining;
+    });
+  } finally { deletingProfile = false; }
+}
+
 async function addProfile(name) {
   name = name.trim();
   if (!name || name.length > 40) throw new Error('Enter a name of up to 40 characters.');
@@ -1558,6 +1622,30 @@ function validateNumbers(container) {
 }
 
 function bindEvents() {
+  window.addEventListener('storage', event => {
+    if (event.key !== PROFILE_STORAGE_KEY || !event.newValue) return;
+    try {
+      const registry = JSON.parse(event.newValue);
+      if (!registry.profiles.some(profile => profile.id === activeProfileId)) window.location.reload();
+      else {
+        profiles = registry.profiles;
+        if (document.getElementById('profile-dialog').open && !deletingProfile) showProfiles();
+      }
+    } catch (error) { /* Ignore incomplete cross-tab registry updates. */ }
+  });
+  document.getElementById('profile-delete-cancel').addEventListener('click', () => document.getElementById('profile-delete-dialog').close());
+  document.getElementById('profile-delete-dialog').addEventListener('cancel', event => { if (deletingProfile) event.preventDefault(); });
+  document.getElementById('profile-delete-confirm').addEventListener('click', async () => {
+    const confirm = document.getElementById('profile-delete-confirm');
+    const cancel = document.getElementById('profile-delete-cancel');
+    confirm.disabled = cancel.disabled = true;
+    try {
+      await deleteProfile(profilePendingDeletion);
+      document.getElementById('profile-delete-dialog').close();
+      showProfiles();
+    } catch (error) { document.getElementById('profile-delete-message').textContent = error.message || 'Could not delete this profile. Please try again.'; }
+    finally { confirm.disabled = cancel.disabled = false; }
+  });
   document.getElementById('profile-dialog').addEventListener('cancel', event => { if (switchingProfile) event.preventDefault(); });
   document.getElementById('profile-button').addEventListener('click', showProfiles);
   document.getElementById('profile-close').addEventListener('click', () => document.getElementById('profile-dialog').close());
@@ -1833,7 +1921,7 @@ function bindEvents() {
 // ─── PWA Registration ───────────────────────────────────────
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=20260913').catch(() => {});
+    navigator.serviceWorker.register('./sw.js?v=20260913-3').catch(() => {});
   }
 }
 

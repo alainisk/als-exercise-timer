@@ -1,5 +1,5 @@
-const CACHE_NAME = 'als-timer-v9';
-const ASSETS = ['./favicon.png?v=20260913-2', './index.html', './styles.css', './redesign.css?v=20260913', './app.js?v=20260913', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE_NAME = 'als-timer-v10';
+const ASSETS = ['./favicon.png?v=20260913-2', './index.html', './styles.css', './redesign.css?v=20260913-3', './app.js?v=20260913-3', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));

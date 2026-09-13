@@ -212,3 +212,5 @@ svg {flex-shrink:0;}
 .dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px;}
 #profile-error{color:#f1a49a;}
 @media(max-width:650px){.app-header{height:auto;}.header-inner{flex-wrap:wrap;padding-top:14px;}.header-tools{width:100%;justify-content:space-between;gap:12px;height:62px;}#profile-button{max-width:55%;}.header-tools nav{height:62px;}.empty-workouts{min-height:300px;padding:24px;}.empty-workouts h1{font-size:26px;}.app-dialog{padding:20px;}.profile-form-row{flex-wrap:wrap;}.profile-form-row input{width:100%;}.profile-form-row button{width:100%;}}
+
+.profile-row{display:flex;gap:10px;align-items:stretch;}.profile-row .profile-option{flex:1;min-width:0;}.profile-delete-button{flex-shrink:0;border:1px solid var(--border);background:transparent;color:#f1a49a;border-radius:10px;padding:0 14px;min-height:44px;font-size:13px;cursor:pointer;}[data-theme="light"] .profile-delete-button{color:#a12a20;}

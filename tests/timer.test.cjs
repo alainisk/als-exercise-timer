@@ -17,7 +17,7 @@ function app() {
     return elements.get(id);
   };
   const context = vm.createContext({
-    URL: {revokeObjectURL(){}}, structuredClone, Set, Date: class extends Date {static now(){return now;}},
+    crypto:{randomUUID:()=> 'new-empty-profile'}, localStorage:{setItem(){}}, URL: {revokeObjectURL(){}}, structuredClone, Set, Date: class extends Date {static now(){return now;}},
     setInterval: () => 1, clearInterval(){},
     window: {scrollTo(){},speechSynthesis:{cancel(){}}},
     document: {getElementById:element,querySelector:element,querySelectorAll:()=>[]}
@@ -27,7 +27,9 @@ function app() {
     saveSettings = () => Promise.resolve();
     state.workouts = [structuredClone(DEFAULT_WORKOUT)];
     state.activeWorkoutId = DEFAULT_WORKOUT.id;
-    globalThis.testApp = {state, DEFAULT_WORKOUT, buildPhaseSequence, calcWorkoutTotalTime, pauseTimer, startPhase, skipToNext, timerTick, portableSettings, validateWorkoutData, commitEditedWorkout, discardEditorMedia, loadData, profileDatabase, deleteWorkout,
+    globalThis.testApp = {state, DEFAULT_WORKOUT, buildPhaseSequence, calcWorkoutTotalTime, pauseTimer, startPhase, skipToNext, timerTick, portableSettings, validateWorkoutData, commitEditedWorkout, discardEditorMedia, loadData, profileDatabase, deleteWorkout, deleteProfile,
+      profileFixture(items,active,clear) { profiles=items; activeProfileId=active; clearProfileData=clear; switchProfile=async id=>{activeProfileId=id;}; },
+      profileState() {return {profiles,activeProfileId};},
       storage(read,write) {dbGetAll=read; dbPut=write;},
       stageVideo(id,file,url) {pendingVideos.set(id,{file,url});},
       database(value) {db=value;},
@@ -235,4 +237,44 @@ test('Deleting the last workout removes it and selects no stale workout', async 
   assert.equal(a.state.workouts.length,0);
   assert.equal(a.state.activeWorkoutId,null);
   assert.equal(deleted[0].id,'classic-tabata');
+});
+
+
+test('Deleting an inactive profile clears only that profile and preserves the current user', async () => {
+  const a=app(), cleared=[];
+  a.profileFixture([{id:'parent',name:'Parent'},{id:'son',name:'Son'}],'parent',async id=>cleared.push(id));
+  await a.deleteProfile('son');
+  assert.deepEqual(cleared,['son']);
+  assert.equal(a.profileState().activeProfileId,'parent');
+  assert.equal(a.profileState().profiles.length,1);
+});
+
+test('Deleting the active profile switches to a surviving profile', async () => {
+  const a=app();
+  a.profileFixture([{id:'parent',name:'Parent'},{id:'son',name:'Son'}],'son',async()=>{});
+  await a.deleteProfile('son');
+  assert.equal(a.profileState().activeProfileId,'parent');
+  assert.equal(a.profileState().profiles[0].id,'parent');
+});
+
+test('Deleting the final profile creates a fresh empty profile with a different database', async () => {
+  const a=app(); a.profileFixture([{id:'default',name:'Only user'}],'default',async()=>{});
+  await a.deleteProfile('default');
+  assert.equal(a.profileState().profiles.length,1);
+  assert.equal(a.profileState().activeProfileId,'new-empty-profile');
+});
+
+test('A failed profile clear retains its registry entry for retry', async () => {
+  const a=app();
+  a.profileFixture([{id:'parent',name:'Parent'},{id:'son',name:'Son'}],'parent',async()=>{throw new Error('storage failure');});
+  await assert.rejects(a.deleteProfile('son'),/storage failure/);
+  assert.equal(a.profileState().profiles.length,2);
+});
+
+test('Profile deletion is unavailable during an active workout', async () => {
+  const a=app(); let cleared=false;
+  a.profileFixture([{id:'parent',name:'Parent'}],'parent',async()=>{cleared=true;});
+  a.state.timer.isRunning=true;
+  await a.deleteProfile('parent');
+  assert.equal(cleared,false);
 });
