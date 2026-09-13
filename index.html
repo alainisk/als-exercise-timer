@@ -2,37 +2,46 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Al's Timer">
-  <meta name="theme-color" content="#1B2138">
-  <title>Al's Exercise Timer</title>
+  <meta name="apple-mobile-web-app-title" content="Tabata Timer">
+  <meta name="theme-color" content="#151715">
+  <title>Tabata Timer</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="redesign.css">
 </head>
 <body>
   <div id="app">
 
-    <!-- ========== HOME SCREEN (Workout List) ========== -->
-    <div id="screen-home" class="screen active">
-      <div class="home-header">
-        <h1 class="home-title">Al's Exercise<br>Timer</h1>
+    <header class="app-header">
+      <div class="header-inner">
+        <button class="brand" id="brand-home" aria-label="Tabata Timer home"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="16" cy="18" r="11"/><path d="M16 7V3m-4 0h8m-4 9v7m8-11 2-2"/></svg><span>Tabata Timer</span></button>
+        <div class="header-tools"><button id="profile-button" class="subtle-btn" aria-label="Switch profile"><span id="profile-current">My profile</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg></button><nav aria-label="Main navigation"><button id="nav-workouts" class="nav-link selected" aria-current="page">Workouts</button><button id="btn-settings" class="nav-link">Settings</button></nav></div>
       </div>
-      <div class="home-body">
-        <div id="workout-list" class="workout-list"></div>
-        <button id="btn-add-workout-home" class="btn-add-workout">
-          <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-          <span>New Workout</span>
-        </button>
+    </header>
+    <main id="screen-home" class="screen active">
+      <div class="workout-layout">
+        <aside class="library" aria-label="Workout library">
+          <div class="section-heading"><h2>Your workouts</h2><span id="workout-count">1</span></div>
+          <div id="workout-list" class="workout-list"></div>
+          <button id="btn-add-workout-home" class="btn-add-workout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg>New workout</button>
+          <p class="library-note">Built around your routine.</p>
+        </aside>
+        <section id="empty-workouts" class="empty-workouts hidden"><h1>Your next workout starts here.</h1><p>No workouts in this profile yet. Add one to get started.</p><button id="empty-add-workout" class="start-cta">Create a workout</button></section>
+        <section class="workout-preview" aria-labelledby="preview-name">
+          <div class="preview-heading"><div><h1 id="preview-name">Classic Tabata</h1><p id="preview-description">20 seconds on. 10 seconds off. Find your rhythm.</p></div><button id="preview-edit" class="subtle-btn" aria-label="Edit workout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m15 5 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15z"/></svg><span>Edit workout</span></button></div>
+          <img id="preview-image" class="preview-photo hidden" alt="Workout preview">
+          <div class="duration-dial"><svg class="dial-track" viewBox="0 0 300 300" aria-hidden="true"><circle cx="150" cy="150" r="140" pathLength="100"/><circle class="dial-accent" cx="150" cy="150" r="140" pathLength="100"/></svg><strong id="preview-duration">04:07</strong><span>TOTAL DURATION</span></div>
+          <dl class="preview-stats"><div><dt>Work</dt><dd id="preview-work">20s</dd></div><div><dt>Rest</dt><dd id="preview-rest">10s</dd></div><div><dt>Sets</dt><dd id="preview-sets">8</dd></div></dl>
+          <button id="preview-start" class="start-cta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4a1 1 0 0 1 1.5-.8l12 8a1 1 0 0 1 0 1.6l-12 8A1 1 0 0 1 7 20Z"/></svg>Start workout</button>
+        </section>
       </div>
-      <div class="home-footer">
-        <button id="btn-settings" class="fab-btn" aria-label="Settings">
-          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.61 3.61 0 0112 15.6z"/></svg>
-        </button>
-      </div>
-    </div>
+      <section class="sequence-panel" aria-labelledby="sequence-title"><div class="section-heading"><h2 id="sequence-title">Workout sequence</h2><span id="sequence-cycles">1 cycle</span></div><div id="sequence-strip" class="sequence-strip"></div></section>
+      <footer class="app-footer"><span>A little stronger, one interval at a time.</span><span class="keyboard-help">Space to pause <span>·</span> Arrow keys to skip</span></footer>
+    </main>
 
     <!-- ========== WORKOUT START SCREEN ========== -->
     <div id="screen-workout-start" class="screen">
@@ -68,6 +77,7 @@
 
     <!-- ========== TIMER SCREEN ========== -->
     <div id="screen-timer" class="screen">
+      <div class="session-heading"><span id="session-workout">Classic Tabata</span><button id="timer-mute" class="subtle-btn" aria-pressed="false">Sound on</button></div>
       <div class="timer-top">
         <button id="btn-timer-back" class="nav-btn" aria-label="Back">
           <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
@@ -81,9 +91,10 @@
         </div>
       </div>
       <div class="timer-bottom">
-        <div class="timer-phase-label" id="timer-phase-label">EXERCISE</div>
+        <div class="timer-phase-label" id="timer-phase-label" aria-live="polite">EXERCISE</div>
         <div class="timer-exercise-name" id="timer-exercise-name">Push-ups</div>
-        <div class="timer-countdown" id="timer-countdown">00:20</div>
+        <div class="active-dial"><svg viewBox="0 0 340 340" aria-hidden="true"><circle class="active-track" cx="170" cy="170" r="158"/><circle id="timer-ring" cx="170" cy="170" r="158" pathLength="100"/></svg><div class="timer-countdown" id="timer-countdown" role="timer">00:20</div><span id="timer-status">REMAINING</span></div>
+        <p id="timer-up-next" class="timer-up-next"></p>
         <div class="timer-stats">
           <div class="timer-stat">
             <span class="stat-current" id="stat-set">01</span><span class="stat-total" id="stat-set-total">/08</span>
@@ -101,7 +112,7 @@
         <div class="timer-controls">
           <button id="btn-pause" class="ctrl-btn" aria-label="Pause">
             <svg viewBox="0 0 24 24" id="pause-icon"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-            <svg viewBox="0 0 24 24" id="play-icon" class="hidden"><polygon points="6,3 20,12 6,21"/></svg>
+            <svg viewBox="0 0 24 24" id="play-icon" class="hidden"><polygon points="6,3 20,12 6,21"/></svg><span id="pause-label">Pause</span>
           </button>
           <button id="btn-prev" class="ctrl-btn" aria-label="Previous">
             <svg viewBox="0 0 24 24"><polygon points="18,3 8,12 18,21"/><rect x="4" y="3" width="3" height="18"/></svg>
@@ -122,7 +133,7 @@
         <div class="complete-icon">
           <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
         </div>
-        <h1>Workout Complete!</h1>
+        <h1>Workout complete.</h1><p class="complete-message">You showed up. You put in the work.</p>
         <div class="complete-stats">
           <div class="complete-stat"><span id="complete-time">00:00</span><label>Total Time</label></div>
           <div class="complete-stat"><span id="complete-sets">0</span><label>Sets</label></div>
@@ -139,7 +150,7 @@
           <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
         </button>
         <h2>Settings</h2>
-        <div class="spacer"></div>
+        <span class="settings-autosave">Saved automatically</span>
       </div>
       <div class="settings-body">
         <!-- Sounds -->
@@ -259,14 +270,14 @@
           <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
         </button>
         <h2 id="editor-title">Edit Workout</h2>
-        <button id="btn-editor-save" class="nav-btn save-btn" aria-label="Save">
+        <button id="btn-editor-save" class="nav-btn save-btn" aria-label="Save workout">
           <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
-        </button>
+        <span>Save</span></button>
       </div>
       <div class="editor-body">
         <div class="editor-section">
           <label class="editor-label">Workout Name</label>
-          <input type="text" id="edit-name" class="editor-input" placeholder="My Workout">
+          <input type="text" id="edit-name" class="editor-input" placeholder="My Workout" maxlength="100">
         </div>
         <div class="editor-section">
           <label class="editor-label">Workout Image</label>
@@ -331,7 +342,7 @@
     </div>
 
     <!-- ========== SET EDITOR MODAL ========== -->
-    <div id="modal-set" class="modal hidden">
+    <div id="modal-set" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-set-title">
       <div class="modal-content">
         <div class="modal-header">
           <h3 id="modal-set-title">Edit Set</h3>
@@ -401,6 +412,13 @@
     </div>
 
   </div>
+  <dialog id="profile-dialog" class="app-dialog" aria-labelledby="profile-title">
+    <div class="dialog-heading"><h2 id="profile-title">Choose your profile</h2><button id="profile-close" class="subtle-btn" aria-label="Close profiles">Close</button></div>
+    <p>Each person has their own workouts on this device.</p>
+    <div id="profile-list" class="profile-list"></div>
+    <form id="profile-form"><label for="profile-name">Add a profile</label><div class="profile-form-row"><input id="profile-name" class="editor-input" placeholder="Name" maxlength="40" required autocomplete="off"><button class="btn-primary" type="submit">Add profile</button></div><p id="profile-error" role="alert"></p></form>
+  </dialog>
+  <dialog id="delete-dialog" class="app-dialog" aria-labelledby="delete-title"><h2 id="delete-title">Delete workout?</h2><p id="delete-message"></p><div class="dialog-actions"><button id="delete-cancel" class="btn-secondary">Keep workout</button><button id="delete-confirm" class="btn-danger">Delete workout</button></div></dialog>
   <script src="app.js"></script>
 </body>
 </html>

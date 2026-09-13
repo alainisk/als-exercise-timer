@@ -1,5 +1,5 @@
 /* ============================================================
-   Al's Exercise Timer — PWA Application
+   Tabata Timer — PWA Application
    ============================================================ */
 
 (() => {
@@ -95,9 +95,9 @@ let db = null;
 // Map of video setId -> blobURL for playback
 const videoBlobURLs = {};
 
-function openDB() {
+function openDB(name = DB_NAME) {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(name, DB_VERSION);
     req.onupgradeneeded = e => {
       const d = e.target.result;
       if (!d.objectStoreNames.contains('workouts')) d.createObjectStore('workouts', { keyPath: 'id' });
@@ -174,18 +174,106 @@ function dbDelete(store, key) {
   });
 }
 
-async function loadData() {
-  const workouts = await dbGetAll('workouts');
-  state.workouts = workouts.length > 0 ? workouts : [structuredClone(DEFAULT_WORKOUT)];
-  if (workouts.length === 0) await dbPut('workouts', state.workouts[0]);
-
-  const settingsRows = await dbGetAll('settings');
-  if (settingsRows.length > 0) {
-    const saved = settingsRows.find(r => r.key === 'app-settings');
-    if (saved) Object.assign(state.settings, saved.value);
+const DEFAULT_SETTINGS = structuredClone(state.settings);
+const PROFILE_STORAGE_KEY = 'tabata-timer-profiles-v1';
+let profiles = [];
+let activeProfileId = 'default';
+let switchingProfile = false;
+let profileOperations = 0;
+async function withProfileOperation(action) {
+  profileOperations++;
+  document.getElementById('profile-button').disabled = true;
+  try { return await action(); }
+  finally {
+    profileOperations--;
+    document.getElementById('profile-button').disabled = switchingProfile || state.timer.isRunning || profileOperations > 0;
   }
-
-  state.activeWorkoutId = state.settings.lastActiveWorkoutId || state.workouts[0].id;
+}
+function loadProfiles() {
+  const saved = JSON.parse(localStorage.getItem(PROFILE_STORAGE_KEY) || 'null');
+  profiles = saved?.profiles?.length ? saved.profiles : [{id:'default', name:'My profile'}];
+  activeProfileId = profiles.some(p => p.id === saved?.activeId) ? saved.activeId : profiles[0].id;
+  persistProfiles();
+}
+function persistProfiles() {
+  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({profiles, activeId:activeProfileId}));
+}
+function profileDatabase(id) { return id === 'default' ? DB_NAME : `${DB_NAME}-profile-${id}`; }
+async function loadData(seedDefault = true) {
+  const workouts = await dbGetAll('workouts');
+  const settingsRows = await dbGetAll('settings');
+  const initialized = settingsRows.some(r => r.key === 'initialized');
+  state.workouts = workouts;
+  if (!initialized && !workouts.length && seedDefault) {
+    state.workouts = [structuredClone(DEFAULT_WORKOUT)];
+    await dbPut('workouts', state.workouts[0]);
+  }
+  await dbPut('settings', {key:'initialized', value:true});
+  state.settings = structuredClone(DEFAULT_SETTINGS);
+  const saved = settingsRows.find(r => r.key === 'app-settings');
+  if (saved) Object.assign(state.settings, saved.value);
+  state.activeWorkoutId = state.workouts.some(w => w.id === state.settings.lastActiveWorkoutId)
+    ? state.settings.lastActiveWorkoutId : state.workouts[0]?.id || null;
+}
+function renderProfileName() {
+  document.getElementById('profile-current').textContent = profiles.find(p => p.id === activeProfileId)?.name || 'My profile';
+}
+async function switchProfile(id) {
+  if (state.timer.isRunning || switchingProfile || profileOperations || !profiles.some(p => p.id === id)) return;
+  switchingProfile = true;
+  const previousId = activeProfileId;
+  document.getElementById('profile-button').disabled = true;
+  document.getElementById('profile-close').disabled = true;
+  try {
+    await saveSettings();
+    discardEditorMedia();
+    for (const key of Object.keys(videoBlobURLs)) { URL.revokeObjectURL(videoBlobURLs[key]); delete videoBlobURLs[key]; }
+    db.close();
+    await openDB(profileDatabase(id));
+    await loadData(id === 'default');
+    activeProfileId = id;
+    persistProfiles();
+    GIST_FILENAME = id === 'default' ? 'als-exercise-timer-sync.json' : `tabata-timer-${id}.json`;
+    document.documentElement.setAttribute('data-theme',state.settings.theme);
+    renderProfileName();
+    showScreen('screen-home');
+    renderHomeWorkoutList();
+    document.getElementById('profile-dialog').close();
+  } catch (error) {
+    await openDB(profileDatabase(previousId));
+    await loadData(previousId === 'default');
+    activeProfileId = previousId;
+    renderProfileName();
+    renderHomeWorkoutList();
+    document.getElementById('profile-error').textContent = 'Could not open this profile. Please try again.';
+  } finally {
+    switchingProfile = false;
+    document.getElementById('profile-button').disabled = false;
+    document.getElementById('profile-close').disabled = false;
+  }
+}
+function showProfiles() {
+  if (state.timer.isRunning) return;
+  const list = document.getElementById('profile-list');
+  list.replaceChildren();
+  for (const profile of profiles) {
+    const button = document.createElement('button');
+    button.className = 'profile-option' + (profile.id === activeProfileId ? ' selected' : '');
+    button.textContent = profile.name + (profile.id === activeProfileId ? ' · Current' : '');
+    button.addEventListener('click', () => switchProfile(profile.id));
+    list.appendChild(button);
+  }
+  document.getElementById('profile-error').textContent = '';
+  document.getElementById('profile-dialog').showModal();
+}
+async function addProfile(name) {
+  name = name.trim();
+  if (!name || name.length > 40) throw new Error('Enter a name of up to 40 characters.');
+  if (profiles.some(p => p.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw new Error('A profile with that name already exists.');
+  const profile = {id:crypto.randomUUID(),name};
+  profiles.push(profile);
+  try { persistProfiles(); } catch (error) { profiles.pop(); throw error; }
+  await switchProfile(profile.id);
 }
 
 async function saveSettings() {
@@ -201,7 +289,20 @@ async function saveWorkout(workout) {
 }
 
 async function deleteWorkout(id) {
-  await dbDelete('workouts', id);
+  const workout = state.workouts.find(w => w.id === id);
+  if (!workout) return;
+  await new Promise((resolve,reject) => {
+    const tx = db.transaction(['workouts','videos'],'readwrite');
+    tx.objectStore('workouts').delete(id);
+    for (const set of workout.sets) {
+      if (set.video && !state.workouts.some(w => w.id !== id && w.sets.some(s => s.id === set.id && s.video))) tx.objectStore('videos').delete(set.id);
+    }
+    tx.oncomplete = resolve;
+    tx.onerror = tx.onabort = () => reject(tx.error || new Error('Could not delete workout'));
+  });
+  for (const set of workout.sets) {
+    if (videoBlobURLs[set.id]) { URL.revokeObjectURL(videoBlobURLs[set.id]); delete videoBlobURLs[set.id]; }
+  }
   state.workouts = state.workouts.filter(w => w.id !== id);
   if (state.activeWorkoutId === id) {
     state.activeWorkoutId = state.workouts[0]?.id || null;
@@ -409,13 +510,14 @@ function startWorkout() {
   if (!workout || workout.sets.length === 0) return;
 
   // Initialize audio context on user gesture
-  getAudioCtx();
+  try { getAudioCtx(); } catch (e) { /* Timing works without audio support. */ }
 
   phaseSequence = buildPhaseSequence(workout);
   if (phaseSequence.length === 0) return;
 
   currentPhaseIdx = 0;
   state.timer.totalElapsed = 0;
+  updateElapsedDisplay();
   state.timer.pausedElapsed = 0;
   state.timer.isRunning = true;
   state.timer.isPaused = false;
@@ -423,12 +525,14 @@ function startWorkout() {
 
   requestWakeLock();
   startSilentAudio();
+  document.getElementById('session-workout').textContent = workout.name;
+  updateMuteButton();
   showScreen('screen-timer');
-  startPhase(currentPhaseIdx);
   startElapsedCounter();
+  startPhase(currentPhaseIdx);
 }
 
-function startPhase(idx) {
+function startPhase(idx, deadline) {
   if (idx >= phaseSequence.length) {
     completeWorkout();
     return;
@@ -440,9 +544,11 @@ function startPhase(idx) {
   state.timer.phase = p.phase;
   state.timer.currentSetIndex = p.setIndex;
   state.timer.currentCycle = p.cycle;
-  state.timer.timeRemaining = p.duration;
+  state.timer.timeRemaining = deadline === undefined ? p.duration : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
   state.timer.playedSounds = new Set();
-  state.timer.targetTime = Date.now() + p.duration * 1000;
+  document.getElementById('timer-countdown').classList.remove('pulsing');
+  state.timer.targetTime = deadline ?? (Date.now() + p.duration * 1000);
+  state.timer.pausedRemaining = p.duration * 1000;
 
   // Sound & speech
   const setData = p.setIndex >= 0 ? workout.sets[p.setIndex] : null;
@@ -457,8 +563,19 @@ function startPhase(idx) {
 }
 
 function timerTick() {
-  if (state.timer.isPaused) return;
+  if (!state.timer.isRunning || state.timer.isPaused) return;
   const now = Date.now();
+  // Preserve scheduled deadlines even when the browser throttles background ticks.
+  if (now >= state.timer.targetTime) {
+    let idx = currentPhaseIdx;
+    let deadline = state.timer.targetTime;
+    while (now >= deadline) {
+      idx++;
+      if (idx >= phaseSequence.length) { completeWorkout(deadline); return; }
+      deadline += phaseSequence[idx].duration * 1000;
+    }
+    startPhase(idx, deadline);
+  }
   const remaining = Math.max(0, (state.timer.targetTime - now) / 1000);
   const secondsLeft = Math.ceil(remaining);
   state.timer.timeRemaining = secondsLeft;
@@ -516,21 +633,28 @@ function prevPhase() {
 }
 
 function skipToNext() {
-  if (currentPhaseIdx < phaseSequence.length - 1) startPhase(currentPhaseIdx + 1);
+  if (state.timer.isRunning) startPhase(currentPhaseIdx + 1);
 }
 
 function pauseTimer() {
+  if (!state.timer.isRunning) return;
+  if (!state.timer.isPaused) {
+    timerTick();
+    if (!state.timer.isRunning) return;
+  }
   if (state.timer.isPaused) {
     state.timer.isPaused = false;
-    state.timer.targetTime = Date.now() + state.timer.timeRemaining * 1000;
+    state.timer.targetTime = Date.now() + state.timer.pausedRemaining;
     state.timer.startTime = Date.now() - state.timer.pausedElapsed;
     requestWakeLock();
     startSilentAudio();
     updatePauseButton();
   } else {
+    state.timer.pausedRemaining = Math.max(0, state.timer.targetTime - Date.now());
     state.timer.isPaused = true;
     state.timer.pausedElapsed = Date.now() - state.timer.startTime;
     releaseWakeLock();
+    stopSilentAudio();
     updatePauseButton();
   }
 }
@@ -543,6 +667,8 @@ function resetTimer() {
   state.timer.phase = PHASES.IDLE;
   releaseWakeLock();
   stopSilentAudio();
+  document.getElementById('timer-exercise-video').pause();
+  window.speechSynthesis?.cancel();
   showScreen('screen-workout-start');
   updateWorkoutStartScreen();
 }
@@ -558,10 +684,14 @@ function startElapsedCounter() {
   }, 500);
 }
 
-function completeWorkout() {
+function completeWorkout(completedAt = Date.now()) {
+  state.timer.totalElapsed = Math.max(0, Math.floor((state.timer.isPaused
+    ? state.timer.pausedElapsed : completedAt - state.timer.startTime) / 1000));
   clearInterval(state.timer.interval);
   clearInterval(state.timer.totalElapsedInterval);
   state.timer.isRunning = false;
+  state.timer.isPaused = false;
+  document.getElementById('timer-exercise-video').pause();
   state.timer.phase = PHASES.COMPLETE;
   releaseWakeLock();
   stopSilentAudio();
@@ -590,6 +720,18 @@ function formatTime(totalSeconds) {
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function showScreen(id) {
+  if (id !== 'screen-editor' && document.getElementById('screen-editor').classList.contains('active')) discardEditorMedia();
+  if (id === 'screen-workout-start') { id = 'screen-home'; renderHomeWorkoutList(); }
+  const settings = id === 'screen-settings';
+  document.getElementById('nav-workouts').classList.toggle('selected', !settings);
+  document.getElementById('btn-settings').classList.toggle('selected', settings);
+  document.getElementById('nav-workouts').setAttribute('aria-current', settings ? 'false' : 'page');
+  document.getElementById('btn-settings').setAttribute('aria-current', settings ? 'page' : 'false');
+  document.getElementById('nav-workouts').disabled = state.timer.isRunning;
+  document.getElementById('brand-home').disabled = state.timer.isRunning;
+  document.getElementById('profile-button').disabled = state.timer.isRunning || switchingProfile || profileOperations > 0;
+  document.getElementById('btn-settings').disabled = state.timer.isRunning;
+  window.scrollTo(0, 0);
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
@@ -651,6 +793,10 @@ function updateTimerUI() {
     timerBottom.classList.add(`phase-${PHASE_COLORS[p.phase] || 'exercise'}`);
   }
 
+  const nextPhase = phaseSequence[currentPhaseIdx + 1];
+  const nextName = nextPhase?.phase === PHASES.EXERCISE ? workout.sets[nextPhase.setIndex].name : nextPhase?.phase;
+  document.getElementById('timer-up-next').textContent = nextName ? 'Up next · ' + nextName.charAt(0).toUpperCase() + nextName.slice(1) : 'Bring it home. This is your final interval.';
+
   // Image/Video
   updateTimerMedia(p, workout);
 
@@ -690,12 +836,12 @@ function updateTimerMedia(p, workout) {
     // Get blob URL for video playback
     const setId = mediaSet.id;
     getVideoBlobURL(setId).then(blobURL => {
-      if (blobURL) {
+      if (blobURL && phaseSequence[currentPhaseIdx] === p && state.timer.isRunning) {
         vidEl.src = blobURL;
         vidEl.load();
         vidEl.classList.remove('hidden');
         placeholder.classList.add('hidden');
-        vidEl.play().catch(() => {});
+        if (!state.timer.isPaused) vidEl.play().catch(() => {});
       }
     });
   } else if (mediaSet?.image) {
@@ -716,6 +862,9 @@ function getNextExerciseSet(fromIdx) {
 }
 
 function updateTimerCountdown() {
+  const duration = phaseSequence[currentPhaseIdx]?.duration || 1;
+  const remaining = state.timer.isPaused ? state.timer.pausedRemaining / 1000 : Math.max(0,(state.timer.targetTime-Date.now())/1000);
+  document.getElementById('timer-ring').style.strokeDashoffset = 100 * (1 - Math.min(1, remaining / duration));
   document.getElementById('timer-countdown').textContent = formatTime(state.timer.timeRemaining);
 }
 
@@ -723,71 +872,96 @@ function updateElapsedDisplay() {
   document.getElementById('stat-time').textContent = formatTime(state.timer.totalElapsed);
 }
 
+function updateMuteButton() {
+  const button = document.getElementById('timer-mute');
+  button.textContent = state.settings.mute ? 'Sound off' : 'Sound on';
+  button.setAttribute('aria-pressed', String(state.settings.mute));
+}
 function updatePauseButton() {
+  const paused = state.timer.isPaused;
+  document.getElementById('btn-pause').setAttribute('aria-label', paused ? 'Resume' : 'Pause');
+  document.getElementById('pause-label').textContent = paused ? 'Resume' : 'Pause';
+  document.getElementById('timer-status').textContent = paused ? 'PAUSED' : 'REMAINING';
+  const video = document.getElementById('timer-exercise-video');
+  if (paused) { video.pause(); window.speechSynthesis?.cancel(); }
+  else if (!video.classList.contains('hidden')) video.play().catch(() => {});
   document.getElementById('pause-icon').classList.toggle('hidden', state.timer.isPaused);
   document.getElementById('play-icon').classList.toggle('hidden', !state.timer.isPaused);
 }
 
 // ─── Home Screen (Workout List) ─────────────────────────────
+const editIcon = '<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
 function renderHomeWorkoutList() {
   const list = document.getElementById('workout-list');
   list.innerHTML = '';
+  if (!state.workouts.some(w => w.id === state.activeWorkoutId)) state.activeWorkoutId = state.workouts[0]?.id;
+  document.getElementById('workout-count').textContent = state.workouts.length;
   state.workouts.forEach(w => {
     const card = document.createElement('div');
-    card.className = 'workout-card';
-    const totalTime = calcWorkoutTotalTime(w);
-    // Get first set image or workout image for thumbnail
-    const thumbSrc = w.image || (w.sets[0]?.image) || null;
-    card.innerHTML = `
-      <div class="workout-card-thumb">
-        ${thumbSrc
-          ? `<img src="${thumbSrc}" alt="${escapeHtml(w.name)}">`
-          : `<svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>`
-        }
-      </div>
-      <div class="workout-card-info">
-        <div class="workout-card-name">${escapeHtml(w.name)}</div>
-        <div class="workout-card-detail">${w.sets.length} sets &middot; ${w.numberOfCycles} cycle${w.numberOfCycles > 1 ? 's' : ''} &middot; ~${formatTime(totalTime)}</div>
-      </div>
-      <div class="workout-card-actions">
-        <button class="btn-edit" aria-label="Edit">
-          <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-        </button>
-        <button class="btn-delete" aria-label="Delete">
-          <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-        </button>
-      </div>
-    `;
-    // Click on card info/thumb → open workout start screen
-    const clickArea = card.querySelector('.workout-card-info');
-    const thumbArea = card.querySelector('.workout-card-thumb');
-    const openStart = () => {
+    card.className = 'workout-card' + (w.id === state.activeWorkoutId ? ' selected' : '');
+    card.innerHTML = `<button class="workout-select" aria-pressed="${w.id === state.activeWorkoutId}">
+      <span class="workout-card-name">${escapeHtml(w.name)}</span>
+      <span class="workout-card-detail" style="display:block">${w.sets.length} set${w.sets.length === 1 ? '' : 's'} · ${w.numberOfCycles} cycle${w.numberOfCycles > 1 ? 's' : ''}</span>
+      <span class="workout-card-time">${formatTime(calcWorkoutTotalTime(w))}</span></button>
+      <div class="workout-card-actions"><button class="btn-edit" aria-label="Edit ${escapeHtml(w.name)}">${editIcon}</button>
+      ${'<button class="btn-delete" aria-label="Delete workout"><svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg><span>Delete</span></button>'}</div>`;
+    card.querySelector('.workout-select').addEventListener('click', () => {
       state.activeWorkoutId = w.id;
       saveSettings();
-      showScreen('screen-workout-start');
-      updateWorkoutStartScreen();
-    };
-    clickArea.addEventListener('click', openStart);
-    thumbArea.addEventListener('click', openStart);
-
-    // Edit
-    card.querySelector('.btn-edit').addEventListener('click', e => {
-      e.stopPropagation();
-      openWorkoutEditor(w);
+      renderHomeWorkoutList();
+      list.querySelector('.selected .workout-select').focus({ preventScroll: true });
     });
-    // Delete
-    card.querySelector('.btn-delete').addEventListener('click', e => {
-      e.stopPropagation();
-      if (state.workouts.length <= 1) return alert('You need at least one workout.');
-      if (confirm(`Delete "${w.name}"?`)) {
-        deleteWorkout(w.id).then(() => {
-          renderHomeWorkoutList();
-          pushToGist(); // Sync deletion to cloud
-        });
-      }
+    card.querySelector('.btn-edit').addEventListener('click', () => openWorkoutEditor(w));
+    card.querySelector('.btn-delete')?.addEventListener('click', () => {
+      requestWorkoutDeletion(w);
     });
     list.appendChild(card);
   });
+  renderWorkoutPreview();
+}
+
+let workoutPendingDeletion = null;
+function requestWorkoutDeletion(workout) {
+  workoutPendingDeletion = workout.id;
+  document.getElementById('delete-message').textContent = `“${workout.name}” will be removed from this profile.`;
+  document.getElementById('delete-dialog').showModal();
+}
+
+function renderWorkoutPreview() {
+  const w = getActiveWorkout();
+  document.querySelector('.workout-preview').classList.toggle('hidden', !w);
+  document.querySelector('.sequence-panel').classList.toggle('hidden', !w);
+  document.getElementById('empty-workouts').classList.toggle('hidden', !!w);
+  if (!w) return;
+  const work = [...new Set(w.sets.map(s => s.exerciseDuration))];
+  const rest = [...new Set(w.sets.map(s => s.restDuration))];
+  document.getElementById('preview-name').textContent = w.name;
+  document.getElementById('preview-duration').textContent = formatTime(calcWorkoutTotalTime(w));
+  document.getElementById('preview-description').textContent = work.length === 1 && rest.length === 1
+    ? `${work[0]} second${work[0] === 1 ? '' : 's'} on. ${rest[0]} second${rest[0] === 1 ? '' : 's'} off. Find your rhythm.` : 'A routine built around you. One interval at a time.';
+  document.getElementById('preview-work').textContent = work.length === 1 ? work[0] + 's' : 'Varied';
+  document.getElementById('preview-rest').textContent = rest.length === 1 ? rest[0] + 's' : 'Varied';
+  document.getElementById('preview-sets').textContent = w.sets.length;
+  document.getElementById('sequence-cycles').textContent = `${w.numberOfCycles} cycle${w.numberOfCycles > 1 ? 's' : ''}`;
+  const photo = document.getElementById('preview-image');
+  const src = w.image || w.sets[0]?.image;
+  photo.classList.toggle('hidden', !src);
+  if (src) photo.src = src;
+  const strip = document.getElementById('sequence-strip');
+  strip.replaceChildren();
+  const phases = buildPhaseSequence(w);
+  const names = {countdown:'Prepare',exercise:'Work',rest:'Rest',warmup:'Warmup',recovery:'Recovery',cooldown:'Cooldown'};
+  phases.slice(0,80).forEach(p => {
+    const step = document.createElement('div');
+    step.className = 'sequence-step ' + (p.phase === 'exercise' ? 'work' : p.phase === 'countdown' ? 'prepare' : '');
+    step.innerHTML = `${names[p.phase]}<span>${p.duration}s</span>`;
+    step.title = `${p.cycle >= 0 ? 'Cycle ' + (p.cycle + 1) + ' · ' : ''}${p.setIndex >= 0 ? w.sets[p.setIndex].name + ' · ' : ''}${names[p.phase]} ${p.duration}s`;
+    strip.appendChild(step);
+  });
+  if (phases.length > 80) {
+    const more = document.createElement('div'); more.className = 'sequence-step sequence-more';
+    more.textContent = `+ ${phases.length - 80} intervals`; strip.appendChild(more);
+  }
 }
 
 // ─── Workout Start Screen ───────────────────────────────────
@@ -845,7 +1019,52 @@ function saveSettingsFromUI() {
 }
 
 // ─── Workout Editor ─────────────────────────────────────────
+const pendingVideos = new Map();
+let setDraft = null;
+function discardEditorMedia() {
+  releaseSetDraft();
+  for (const pending of pendingVideos.values()) URL.revokeObjectURL(pending.url);
+  pendingVideos.clear();
+}
+function releaseSetDraft() {
+  if (setDraft?.url && pendingVideos.get(setDraft.id)?.url !== setDraft.url) URL.revokeObjectURL(setDraft.url);
+  setDraft = null;
+}
+async function commitEditedWorkout(workout) { return withProfileOperation(() => commitEditedWorkoutInternal(workout)); }
+async function commitEditedWorkoutInternal(workout) {
+  // Workout references and their replacement video blobs commit together.
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(['workouts', 'videos'], 'readwrite');
+    tx.objectStore('workouts').put(workout);
+    const previous = state.workouts.find(w => w.id === workout.id);
+    for (const oldSet of previous?.sets || []) {
+      if (oldSet.video && !workout.sets.some(set => set.id === oldSet.id && set.video)) {
+        tx.objectStore('videos').delete(oldSet.id);
+      }
+    }
+    for (const set of workout.sets) {
+      const pending = pendingVideos.get(set.id);
+      if (pending && set.video) tx.objectStore('videos').put({setId:set.id, blob:pending.file, mimeType:pending.file.type});
+    }
+    tx.oncomplete = resolve;
+    tx.onerror = tx.onabort = () => reject(tx.error || new Error('Could not save workout'));
+  });
+  const previous = state.workouts.find(w => w.id === workout.id);
+  for (const oldSet of previous?.sets || []) {
+    if (oldSet.video && !workout.sets.some(set => set.id === oldSet.id && set.video) && videoBlobURLs[oldSet.id]) {
+      URL.revokeObjectURL(videoBlobURLs[oldSet.id]); delete videoBlobURLs[oldSet.id];
+    }
+  }
+  for (const set of workout.sets) {
+    if (pendingVideos.has(set.id) && videoBlobURLs[set.id]) {
+      URL.revokeObjectURL(videoBlobURLs[set.id]); delete videoBlobURLs[set.id];
+    }
+  }
+  const idx = state.workouts.findIndex(w => w.id === workout.id);
+  if (idx >= 0) state.workouts[idx] = workout; else state.workouts.push(workout);
+}
 function openWorkoutEditor(workout) {
+  discardEditorMedia();
   state.editingWorkout = workout ? structuredClone(workout) : {
     id: crypto.randomUUID(),
     name: 'New Workout',
@@ -896,7 +1115,8 @@ function renderSetsList() {
   const list = document.getElementById('sets-list');
   list.innerHTML = '';
   state.editingSets.forEach((set, idx) => {
-    const card = document.createElement('div');
+    const card = document.createElement('button');
+    card.type = 'button';
     card.className = 'set-card';
     card.innerHTML = `
       <div class="set-card-color" style="background:${set.color}"></div>
@@ -906,7 +1126,7 @@ function renderSetsList() {
       <div class="set-card-info">
         <div class="set-card-name">${escapeHtml(set.name)}</div>
         <div class="set-card-detail">${set.exerciseDuration}s work / ${set.restDuration}s rest</div>
-      </div>
+      </div><span class="set-edit-label">Edit</span>
     `;
     card.addEventListener('click', () => openSetEditor(idx));
     list.appendChild(card);
@@ -914,6 +1134,7 @@ function renderSetsList() {
 }
 
 function saveWorkoutFromEditor() {
+  if (!validateNumbers(document.getElementById('screen-editor'))) return;
   const w = state.editingWorkout;
   w.name = document.getElementById('edit-name').value.trim() || 'Unnamed Workout';
   w.initialCountdown = parseInt(document.getElementById('edit-countdown').value) || 0;
@@ -931,15 +1152,19 @@ function saveWorkoutFromEditor() {
     w.image = null;
   }
 
-  saveWorkout(w).then(() => {
+  commitEditedWorkout(w).then(() => {
+    state.activeWorkoutId = w.id;
+    saveSettings();
     renderHomeWorkoutList();
     showScreen('screen-home');
     pushToGist(); // Sync to cloud
-  });
+  }).catch(() => alert("Could not save workout. Your edits are still open; please try again."));
 }
 
 // ─── Set Editor Modal ───────────────────────────────────────
+let modalReturnFocus = null;
 function openSetEditor(idx) {
+  modalReturnFocus = document.activeElement;
   state.editingSetIndex = idx;
   const set = idx >= 0 ? state.editingSets[idx] : {
     id: crypto.randomUUID(),
@@ -952,6 +1177,9 @@ function openSetEditor(idx) {
     sound: 'default'
   };
 
+  releaseSetDraft();
+  setDraft = {id:set.id, image:set.image, video:set.video, ...(pendingVideos.get(set.id) || {})};
+  const draft = setDraft;
   document.getElementById('modal-set-title').textContent = idx >= 0 ? `Edit Set ${idx + 1}` : 'New Set';
   document.getElementById('set-name').value = set.name;
   document.getElementById('set-exercise-dur').value = set.exerciseDuration;
@@ -971,38 +1199,45 @@ function openSetEditor(idx) {
     imgClear.classList.add('hidden');
   }
 
-  // Video preview
+  // Clear the previous exercise immediately; ignore stale asynchronous loads.
   const vidPreview = document.getElementById('set-video-preview');
   const vidClear = document.getElementById('btn-set-video-clear');
-  if (set.video) {
-    getVideoBlobURL(set.id).then(blobURL => {
-      if (blobURL) {
-        vidPreview.src = blobURL;
-        vidPreview.load();
-        vidPreview.classList.remove('hidden');
-        vidClear.classList.remove('hidden');
-      }
+  vidPreview.pause();
+  vidPreview.removeAttribute('src');
+  vidPreview.classList.add('hidden');
+  vidClear.classList.toggle('hidden', !draft.video);
+  if (draft.video) {
+    Promise.resolve(draft.url || getVideoBlobURL(set.id)).then(blobURL => {
+      if (setDraft !== draft || !draft.video || !blobURL || (draft.url && draft.url !== blobURL)) return;
+      vidPreview.src = blobURL;
+      vidPreview.load();
+      vidPreview.classList.remove('hidden');
     });
-  } else {
-    vidPreview.pause();
-    vidPreview.removeAttribute('src');
-    vidPreview.classList.add('hidden');
-    vidClear.classList.add('hidden');
   }
 
   document.getElementById('btn-set-delete').classList.toggle('hidden', idx < 0);
   document.getElementById('modal-set').classList.remove('hidden');
+  document.getElementById('screen-editor').inert = true;
+  document.querySelector('.app-header').inert = true;
+  document.getElementById('set-name').focus();
 }
 
 function closeSetModal() {
+  releaseSetDraft();
+  document.getElementById('screen-editor').inert = false;
+  document.querySelector('.app-header').inert = false;
+  document.getElementById('set-video-preview').pause();
+  if (modalReturnFocus?.isConnected) modalReturnFocus.focus();
+  else document.getElementById('btn-add-set').focus();
   document.getElementById('modal-set').classList.add('hidden');
   document.getElementById('set-image-input').value = '';
   document.getElementById('set-video-input').value = '';
 }
 
 async function saveSetFromModal() {
+  if (!validateNumbers(document.getElementById('modal-set'))) return;
   const set = {
-    id: state.editingSetIndex >= 0 ? state.editingSets[state.editingSetIndex].id : crypto.randomUUID(),
+    id: setDraft.id,
     name: document.getElementById('set-name').value.trim() || 'Unnamed',
     exerciseDuration: parseInt(document.getElementById('set-exercise-dur').value) || 20,
     restDuration: parseInt(document.getElementById('set-rest-dur').value) || 0,
@@ -1012,38 +1247,12 @@ async function saveSetFromModal() {
     video: null
   };
 
-  // Preserve existing media if not cleared
-  if (state.editingSetIndex >= 0) {
-    const existing = state.editingSets[state.editingSetIndex];
-    set.image = existing.image;
-    set.video = existing.video;
-  }
-
-  // Check for new image
-  const imgPreview = document.getElementById('set-image-preview');
-  if (!imgPreview.classList.contains('hidden') && imgPreview.src) {
-    set.image = imgPreview.src;
-  }
-  if (document.getElementById('btn-set-image-clear').classList.contains('hidden') && !imgPreview.src) {
-    set.image = null;
-  }
-
-  // Video — keep the blob reference marker if video exists
-  const vidPreview = document.getElementById('set-video-preview');
-  if (!vidPreview.classList.contains('hidden') && vidPreview.src) {
-    set.video = 'blob:' + set.id;
-    // If this was a new set being added, migrate the temp video blob
-    if (state.editingSetIndex < 0 && videoBlobURLs['_new_set_video']) {
-      const tempRecord = await dbGet('videos', '_new_set_video');
-      if (tempRecord) {
-        await saveVideoBlob(set.id, tempRecord.blob, tempRecord.mimeType);
-        await deleteVideoBlob('_new_set_video');
-      }
-    }
-  }
-  if (document.getElementById('btn-set-video-clear').classList.contains('hidden')) {
-    set.video = null;
-  }
+  set.image = setDraft.image || null;
+  set.video = setDraft.video || null;
+  const previous = pendingVideos.get(set.id);
+  if (previous && previous.url !== setDraft.url) URL.revokeObjectURL(previous.url);
+  pendingVideos.delete(set.id);
+  if (setDraft.file && set.video) pendingVideos.set(set.id, {file:setDraft.file, url:setDraft.url});
 
   if (state.editingSetIndex >= 0) {
     state.editingSets[state.editingSetIndex] = set;
@@ -1066,23 +1275,53 @@ function deleteSet() {
 }
 
 // ─── Export / Import ────────────────────────────────────────
+function portableSettings(settings) {
+  const { syncToken, syncGistId, ...preferences } = settings;
+  return preferences;
+}
 function exportWorkouts() {
   const data = {
     version: 1,
     exportDate: new Date().toISOString(),
     workouts: state.workouts,
-    settings: state.settings
+    settings: portableSettings(state.settings)
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `als-exercise-timer-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `tabata-timer-backup-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
-async function importWorkouts(file) {
+function validateWorkoutData(workouts) {
+  if (!Array.isArray(workouts) || !workouts.length || workouts.length > 1000) throw new Error('Backup must contain workouts.');
+  const ids = new Set();
+  const integer = (n,min,max) => Number.isInteger(n) && n >= min && n <= max;
+  const text = value => typeof value === 'string' && value.length > 0 && value.length <= 1000;
+  const image = value => value == null || (typeof value === 'string' && /^data:image\/(png|jpeg|gif|webp|avif);base64,[a-z0-9+/=\s]+$/i.test(value));
+  for (const w of workouts) {
+    if (!w || !text(w.id) || ids.has(w.id) || !text(w.name) || !image(w.image)
+      || !integer(w.initialCountdown,0,30) || !integer(w.warmupDuration,0,600)
+      || !integer(w.numberOfCycles,1,50) || !integer(w.recoveryDuration,0,600)
+      || !integer(w.cooldownDuration,0,600) || !Array.isArray(w.sets) || !w.sets.length || w.sets.length > 1000) {
+      throw new Error('Invalid workout data. No workouts were imported.');
+    }
+    ids.add(w.id);
+    const setIds = new Set();
+    for (const set of w.sets) {
+      if (!set || !text(set.id) || setIds.has(set.id) || !text(set.name)
+        || !integer(set.exerciseDuration,1,600) || !integer(set.restDuration,0,600)
+        || !image(set.image) || (set.color != null && !/^#[0-9a-f]{6}$/i.test(set.color))
+        || (set.video != null && set.video !== 'blob:' + set.id)) throw new Error('Invalid exercise data. No workouts were imported.');
+      setIds.add(set.id);
+    }
+  }
+}
+
+async function importWorkouts(file) { return withProfileOperation(() => importWorkoutsInternal(file)); }
+async function importWorkoutsInternal(file) {
   try {
     const text = await file.text();
     const data = JSON.parse(text);
@@ -1090,11 +1329,12 @@ async function importWorkouts(file) {
       alert('Invalid backup file.');
       return;
     }
+    validateWorkoutData(data.workouts);
     for (const w of data.workouts) {
       await saveWorkout(w);
     }
     if (data.settings) {
-      Object.assign(state.settings, data.settings);
+      Object.assign(state.settings, portableSettings(data.settings));
       await saveSettings();
       document.documentElement.setAttribute('data-theme', state.settings.theme);
       loadSettingsUI();
@@ -1107,7 +1347,7 @@ async function importWorkouts(file) {
 }
 
 // ─── Cloud Sync (GitHub Gist) ───────────────────────────────
-const GIST_FILENAME = 'als-exercise-timer-sync.json';
+let GIST_FILENAME = 'als-exercise-timer-sync.json';
 
 function getSyncToken() {
   return state.settings.syncToken || '';
@@ -1167,7 +1407,7 @@ async function findSyncGist() {
 async function createSyncGist() {
   const data = buildSyncPayload();
   const gist = await gistApiCall('POST', 'https://api.github.com/gists', {
-    description: "Al's Exercise Timer - Workout Sync",
+    description: "Tabata Timer - Workout Sync",
     public: false,
     files: {
       [GIST_FILENAME]: { content: JSON.stringify(data, null, 2) }
@@ -1186,7 +1426,8 @@ function buildSyncPayload() {
   };
 }
 
-async function pushToGist() {
+async function pushToGist() { return withProfileOperation(() => pushToGistInternal()); }
+async function pushToGistInternal() {
   if (!getSyncToken()) return;
   try {
     updateSyncUI('syncing', 'Syncing...');
@@ -1208,7 +1449,8 @@ async function pushToGist() {
   }
 }
 
-async function pullFromGist() {
+async function pullFromGist() { return withProfileOperation(() => pullFromGistInternal()); }
+async function pullFromGistInternal() {
   if (!getSyncToken()) return;
   try {
     updateSyncUI('syncing', 'Syncing...');
@@ -1222,7 +1464,7 @@ async function pullFromGist() {
     const content = gist.files[GIST_FILENAME]?.content;
     if (!content) return;
     const remote = JSON.parse(content);
-    if (!remote.workouts || !Array.isArray(remote.workouts)) return;
+    validateWorkoutData(remote.workouts);
 
     // Merge: remote workouts override local by ID, add new ones
     const localMap = new Map(state.workouts.map(w => [w.id, w]));
@@ -1271,7 +1513,8 @@ function loadSyncUI() {
   }
 }
 
-async function connectSync() {
+async function connectSync() { return withProfileOperation(() => connectSyncInternal()); }
+async function connectSyncInternal() {
   const token = document.getElementById('sync-token').value.trim();
   if (!token) {
     alert('Please enter a GitHub Personal Access Token');
@@ -1296,7 +1539,8 @@ async function connectSync() {
   }
 }
 
-async function disconnectSync() {
+async function disconnectSync() { return withProfileOperation(() => disconnectSyncInternal()); }
+async function disconnectSyncInternal() {
   state.settings.syncToken = '';
   state.settings.syncGistId = '';
   await saveSettings();
@@ -1305,7 +1549,62 @@ async function disconnectSync() {
 }
 
 // ─── Event Binding ──────────────────────────────────────────
+function validateNumbers(container) {
+  for (const input of container.querySelectorAll('input[type=number]')) {
+    input.required = true;
+    if (!input.reportValidity()) return false;
+  }
+  return true;
+}
+
 function bindEvents() {
+  document.getElementById('profile-dialog').addEventListener('cancel', event => { if (switchingProfile) event.preventDefault(); });
+  document.getElementById('profile-button').addEventListener('click', showProfiles);
+  document.getElementById('profile-close').addEventListener('click', () => document.getElementById('profile-dialog').close());
+  document.getElementById('profile-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = event.submitter;
+    if (switchingProfile) return;
+    button.disabled = true;
+    try { await addProfile(document.getElementById('profile-name').value); document.getElementById('profile-name').value = ''; }
+    catch (error) { document.getElementById('profile-error').textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+  document.getElementById('empty-add-workout').addEventListener('click', () => openWorkoutEditor(null));
+  document.getElementById('delete-cancel').addEventListener('click', () => document.getElementById('delete-dialog').close());
+  document.getElementById('delete-confirm').addEventListener('click', async () => {
+    const button = document.getElementById('delete-confirm');
+    button.disabled = true;
+    try {
+      if (state.workouts.some(w => w.id === workoutPendingDeletion)) await deleteWorkout(workoutPendingDeletion);
+      document.getElementById('delete-dialog').close();
+      renderHomeWorkoutList();
+      document.getElementById('btn-add-workout-home').focus();
+      pushToGist();
+    } catch (error) { document.getElementById('delete-message').textContent = 'Could not delete this workout. Please try again.'; }
+    finally { button.disabled = false; }
+  });
+  const goHome = () => { if (!state.timer.isRunning) { showScreen('screen-home'); renderHomeWorkoutList(); } };
+  document.getElementById('brand-home').addEventListener('click', goHome);
+  document.getElementById('nav-workouts').addEventListener('click', goHome);
+  document.getElementById('preview-start').addEventListener('click', startWorkout);
+  document.getElementById('preview-edit').addEventListener('click', () => openWorkoutEditor(getActiveWorkout()));
+  document.getElementById('timer-mute').addEventListener('click', () => {
+    state.settings.mute = !state.settings.mute;
+    if (state.settings.mute) window.speechSynthesis?.cancel();
+    updateMuteButton(); saveSettings();
+  });
+  document.querySelectorAll('.editor-row, .editor-section').forEach(row => {
+    const label = row.querySelector(':scope > label');
+    const input = row.querySelector('input:not([type=file]),select');
+    if (label && input) label.htmlFor = input.id;
+  });
+  document.querySelectorAll('.num-btn').forEach(button => {
+    const input = document.getElementById(button.dataset.target);
+    const label = document.querySelector(`label[for="${input.id}"]`);
+    button.setAttribute('aria-label', `${button.classList.contains('plus') ? 'Increase' : 'Decrease'} ${label?.textContent || input.id}`);
+  });
+
   // Home
   document.getElementById('btn-add-workout-home').addEventListener('click', () => {
     openWorkoutEditor(null);
@@ -1405,7 +1704,9 @@ function bindEvents() {
   document.getElementById('workout-image-input').addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file) return;
+    const workout = state.editingWorkout;
     const dataUrl = await resizeImage(file, 600);
+    if (state.editingWorkout !== workout || !document.getElementById('screen-editor').classList.contains('active')) return;
     const preview = document.getElementById('edit-workout-image-preview');
     preview.src = dataUrl;
     preview.classList.remove('hidden');
@@ -1444,22 +1745,21 @@ function bindEvents() {
   document.getElementById('set-image-input').addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file) return;
+    const draft = setDraft;
     const dataUrl = await resizeImage(file);
+    if (setDraft !== draft) return;
+    draft.image = dataUrl;
     const preview = document.getElementById('set-image-preview');
     preview.src = dataUrl;
     preview.classList.remove('hidden');
     document.getElementById('btn-set-image-clear').classList.remove('hidden');
-    if (state.editingSetIndex >= 0) {
-      state.editingSets[state.editingSetIndex].image = dataUrl;
-    }
+
   });
   document.getElementById('btn-set-image-clear').addEventListener('click', () => {
     document.getElementById('set-image-preview').src = '';
     document.getElementById('set-image-preview').classList.add('hidden');
     document.getElementById('btn-set-image-clear').classList.add('hidden');
-    if (state.editingSetIndex >= 0) {
-      state.editingSets[state.editingSetIndex].image = null;
-    }
+    setDraft.image = null;
   });
 
   // Video upload — store as Blob in IndexedDB, use Blob URL for playback
@@ -1477,22 +1777,18 @@ function bindEvents() {
     const validTypes = ['video/mp4', 'video/quicktime', 'video/x-m4v'];
     if (!validTypes.includes(file.type) && !file.name.match(/\.(mp4|mov|m4v)$/i)) {
       alert('Please use MP4 or MOV format. Other formats may not play on iOS.');
+      return;
     }
-    const setId = state.editingSetIndex >= 0
-      ? state.editingSets[state.editingSetIndex].id
-      : '_new_set_video';
-    // Store blob and get URL
-    await saveVideoBlob(setId, file, file.type);
-    const blobURL = videoBlobURLs[setId];
+    if (!setDraft) return;
+    if (setDraft.url && pendingVideos.get(setDraft.id)?.url !== setDraft.url) URL.revokeObjectURL(setDraft.url);
+    setDraft.file = file;
+    setDraft.url = URL.createObjectURL(file);
+    setDraft.video = 'blob:' + setDraft.id;
     const preview = document.getElementById('set-video-preview');
-    preview.src = blobURL;
+    preview.src = setDraft.url;
     preview.load();
     preview.classList.remove('hidden');
     document.getElementById('btn-set-video-clear').classList.remove('hidden');
-    if (state.editingSetIndex >= 0) {
-      // Mark that this set has video (store the setId as reference)
-      state.editingSets[state.editingSetIndex].video = 'blob:' + setId;
-    }
   });
   document.getElementById('btn-set-video-clear').addEventListener('click', () => {
     const preview = document.getElementById('set-video-preview');
@@ -1501,11 +1797,10 @@ function bindEvents() {
     preview.load();
     preview.classList.add('hidden');
     document.getElementById('btn-set-video-clear').classList.add('hidden');
-    if (state.editingSetIndex >= 0) {
-      const setId = state.editingSets[state.editingSetIndex].id;
-      deleteVideoBlob(setId);
-      state.editingSets[state.editingSetIndex].video = null;
-    }
+    if (setDraft.url && pendingVideos.get(setDraft.id)?.url !== setDraft.url) URL.revokeObjectURL(setDraft.url);
+    setDraft.video = null;
+    setDraft.file = null;
+    setDraft.url = null;
   });
 
   // Close modal on backdrop click
@@ -1515,11 +1810,23 @@ function bindEvents() {
 
   // Keyboard shortcuts
   document.addEventListener('keydown', e => {
-    if (!state.timer.isRunning) return;
+    const modal = document.getElementById('modal-set');
+    if (!modal.classList.contains('hidden')) {
+      if (e.code === 'Escape') closeSetModal();
+      if (e.code === 'Tab') {
+        const focusable = [...modal.querySelectorAll('button,input,select')].filter(el => el.getClientRects().length && !el.disabled);
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+      return;
+    }
+    if (!state.timer.isRunning || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+    if (e.code === 'Space' && e.target.tagName === 'BUTTON') return;
     if (e.code === 'Space') { e.preventDefault(); pauseTimer(); }
     if (e.code === 'ArrowRight') skipToNext();
     if (e.code === 'ArrowLeft') prevPhase();
-    if (e.code === 'Escape') resetTimer();
+    if (e.code === 'Escape') { if (!state.timer.isPaused) pauseTimer(); }
   });
 }
 
@@ -1584,8 +1891,11 @@ function generateIcons() {
 
 // ─── Init ───────────────────────────────────────────────────
 async function init() {
-  await openDB();
-  await loadData();
+  loadProfiles();
+  await openDB(profileDatabase(activeProfileId));
+  await loadData(activeProfileId === 'default');
+  GIST_FILENAME = activeProfileId === 'default' ? 'als-exercise-timer-sync.json' : `tabata-timer-${activeProfileId}.json`;
+  renderProfileName();
 
   document.documentElement.setAttribute('data-theme', state.settings.theme);
   renderHomeWorkoutList();

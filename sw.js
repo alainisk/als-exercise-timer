@@ -1,5 +1,5 @@
-const CACHE_NAME = 'als-timer-v4';
-const ASSETS = ['./index.html', './styles.css', './app.js', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE_NAME = 'als-timer-v7';
+const ASSETS = ['./index.html', './styles.css', './redesign.css', './app.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
@@ -9,18 +9,24 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => k.startsWith('als-timer-') && k !== CACHE_NAME).map(k => caches.delete(k)))
     )
   );
   self.clients.claim();
 });
 
 self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+  // Keep API calls, third-party requests and streamed video out of the app cache.
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin || e.request.headers.has('range')) return;
+  if (!ASSETS.some(asset => new URL(asset, self.registration.scope).pathname === url.pathname) && url.pathname !== new URL(self.registration.scope).pathname) return;
   e.respondWith(
     fetch(e.request).then(resp => {
-      const clone = resp.clone();
-      caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+      if (resp.ok) {
+        const clone = resp.clone();
+        e.waitUntil(caches.open(CACHE_NAME).then(c => c.put(e.request, clone)));
+      }
       return resp;
-    }).catch(() => caches.match(e.request))
+    }).catch(async () => (await caches.match(e.request)) || (e.request.mode === 'navigate' ? caches.match('./index.html') : Response.error()))
   );
 });

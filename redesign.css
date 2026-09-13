@@ -1,0 +1,214 @@
+/* Shared visual system. Original media/editor components inherit these tokens. */
+:root {
+  --bg-primary:#151715; --bg-secondary:#20231f; --bg-tertiary:#2c302b;
+  --bg-image:#20231f; --text-primary:#f6f7f4; --text-secondary:#a6aca5;
+  --text-muted:#9da49b; --border:#353a32; --accent:#d5f576;
+  --color-exercise:#d5f576; --color-rest:#8dd9ce; --color-recovery:#abc6f5;
+  --color-warmup:#e9cd8d; --color-cooldown:#8dd9ce; --color-complete:#d5f576;
+  --radius:20px; --radius-sm:10px;
+  color-scheme:dark;
+}
+[data-theme="light"] {
+  --bg-primary:#f5f6f2; --bg-secondary:#fff; --bg-tertiary:#e9ece4;
+  --bg-image:#e9ece4; --text-primary:#20261b; --text-secondary:#5c6456;
+  --text-muted:#626b5c; --border:#d7ddcf; --accent:#d5f576;
+  --color-exercise:#587518; --color-countdown:#20261b; color-scheme:light;
+}
+html,body {min-height:100%; height:auto; overflow:auto; user-select:auto; font-family:Arial,Helvetica,sans-serif; -webkit-font-smoothing:antialiased;}
+body { margin:0; }
+button,input,select {font-family:inherit;}
+button {touch-action:manipulation;}
+button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible {outline:3px solid var(--accent); outline-offset:4px;}
+button:disabled {opacity:.45; cursor:not-allowed;}
+button {transition:background .18s,border-color .18s,transform .18s;}
+button:hover:not(:disabled) {filter:brightness(1.08);}
+button:active:not(:disabled) {transform:translateY(1px);}
+svg {flex-shrink:0;}
+#app {height:auto; min-height:100dvh;}
+.screen {position:relative; inset:auto; overflow:visible; display:none;}
+.screen.active {display:flex;}
+.app-header {height:70px; border-bottom:1px solid var(--border);}
+.header-inner {max-width:1280px; height:100%; margin:auto; display:flex; justify-content:space-between; align-items:center;}
+.brand {display:flex; align-items:center; gap:14px; background:none; border:0; color:var(--text-primary); font-size:20px; font-weight:700; cursor:pointer;}
+.brand svg {width:30px; height:32px; color:var(--accent);}
+.header-inner nav {align-self:stretch; display:flex; gap:36px;}
+.nav-link {position:relative; border:0; background:none; color:var(--text-secondary); padding:0 8px; font-size:14px; cursor:pointer;}
+.nav-link.selected {color:var(--accent);}
+.nav-link.selected:after {content:""; position:absolute; bottom:0; left:0; right:0; height:3px; background:var(--accent);}
+[data-theme="light"] .nav-link.selected,[data-theme="light"] .brand svg {color:#587518;}
+#screen-home {max-width:1280px; margin:0 auto; padding:0 0 24px;}
+.home-intro {padding:44px 0 40px; text-align:center;}
+.home-intro h1 {font-size:46px; line-height:1.15; letter-spacing:-1.7px; font-weight:750;}
+.home-intro p {margin-top:14px; font-size:20px; line-height:1.5; color:var(--text-secondary);}
+.workout-layout {display:grid; grid-template-columns:350px minmax(0,1fr); gap:30px; align-items:start;}
+.section-heading {display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px;}
+.section-heading h2 {font-size:21px; font-weight:650; letter-spacing:-.3px;}
+.section-heading>span {font-size:14px; color:var(--text-secondary);}
+.workout-list {display:flex; flex-direction:column; gap:12px;}
+.workout-card {display:flex; gap:0; border:1px solid var(--border); background:var(--bg-secondary); border-radius:11px; padding:0; min-height:100px; overflow:hidden; position:relative; box-shadow:none;}
+.workout-card.selected {border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent);}
+.workout-select {display:block; text-align:left; border:none; background:none; color:var(--text-primary); cursor:pointer; flex:1; min-width:0; padding:18px 16px;}
+.workout-card-name {font-size:18px; font-weight:650; overflow-wrap:anywhere;}
+.workout-card-detail {font-size:14px; color:var(--text-secondary); margin-top:7px;}
+.workout-card-time {display:block; margin-top:9px; font-size:16px; font-variant-numeric:tabular-nums;}
+.workout-card-actions {display:flex; flex-direction:column; justify-content:center; padding:6px; gap:0;}
+.workout-card-actions button {width:36px; height:36px; border:0; background:none; color:var(--text-secondary); cursor:pointer; border-radius:6px;}
+.workout-card-actions button:hover {background:var(--bg-tertiary); color:var(--text-primary);}
+.workout-card-actions svg {width:17px; height:17px; fill:currentColor;}
+.btn-add-workout {margin:18px 0 0; width:100%; padding:22px 12px; border:1px dashed #61685c; border-radius:10px; background:none; display:flex; align-items:center; justify-content:center; gap:12px; color:var(--text-primary); font-size:16px; font-weight:400; cursor:pointer;}
+.btn-add-workout svg {width:22px; height:22px; fill:none;}
+.library-note {margin:22px 0; font-size:14px; color:var(--text-secondary);}
+.workout-preview {background:var(--bg-secondary); border:1px solid var(--border); border-radius:20px; padding:24px;}
+.preview-heading {display:flex; justify-content:space-between; gap:16px; align-items:flex-start;}
+.preview-heading h1 {font-size:32px; line-height:1.2; letter-spacing:-.8px; overflow-wrap:anywhere;}
+.preview-heading p {font-size:16px; line-height:1.5; color:var(--text-secondary); margin:7px 0 0;}
+.subtle-btn {display:inline-flex; justify-content:center; align-items:center; gap:8px; flex-shrink:0; border:1px solid var(--border); background:transparent; border-radius:8px; color:var(--text-primary); padding:12px 14px; min-height:44px; font-size:13px; cursor:pointer;}
+.subtle-btn svg {width:17px; height:17px;}
+.duration-dial {width:280px; height:280px; position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; margin:20px auto 22px;}
+.dial-track {position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); fill:none; stroke:#484e44; stroke-width:13; stroke-dasharray:2.1 .4;}
+.dial-track .dial-accent {stroke:var(--accent); stroke-dasharray:4.6 95.4;}
+.duration-dial strong {font-size:78px; line-height:1; font-weight:700; letter-spacing:-4px; font-variant-numeric:tabular-nums;}
+.duration-dial>span {font-size:10px; letter-spacing:3px; color:var(--text-secondary); margin-top:14px;}
+.preview-stats {display:flex; justify-content:center; max-width:500px; margin:0 auto 24px;}
+.preview-stats>div {display:flex; flex:1; flex-direction:column-reverse; text-align:center; border-right:1px solid var(--border); gap:4px;}
+.preview-stats>div:last-child {border:0;}
+.preview-stats dt {font-size:15px; color:var(--text-secondary);}
+.preview-stats dd {font-size:27px; font-weight:700; font-variant-numeric:tabular-nums;}
+.start-cta {display:flex; align-items:center; justify-content:center; gap:12px; width:100%; min-height:56px; color:#18200d; background:var(--accent); border:0; border-radius:10px; font-size:17px; font-weight:700; cursor:pointer;}
+.start-cta svg {width:24px; height:24px; fill:currentColor;}
+.preview-photo {max-width:100%; max-height:180px; object-fit:contain; display:block; margin:20px auto; border-radius:10px;}
+.sequence-panel {padding:22px 24px 24px; margin-top:20px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:16px;}
+.sequence-panel .section-heading {margin-bottom:16px;}
+.sequence-panel h2 {font-size:20px;}
+.sequence-strip {display:flex; gap:3px; overflow-x:auto; padding-bottom:4px; scrollbar-width:thin;}
+.sequence-step {min-width:48px; flex:1; text-align:center; background:var(--bg-tertiary); padding:9px 4px; border-radius:4px; color:var(--text-secondary); font-size:12px; line-height:1.4;}
+.sequence-step span {display:block; font-variant-numeric:tabular-nums;}
+.sequence-step.work {background:var(--accent); color:#202916;}
+.sequence-step.prepare {min-width:74px;}
+.sequence-more {min-width:100px;}
+.app-footer {border-top:1px solid var(--border); margin-top:32px; padding-top:18px; display:flex; justify-content:space-between; gap:20px; font-size:12px; color:var(--text-secondary);}
+.keyboard-help span {padding:0 8px;}
+/* Focused active session. Media only occupies space when attached. */
+#screen-timer {max-width:1000px; margin:0 auto; padding:24px 24px 40px;}
+.session-heading {display:flex; justify-content:space-between; align-items:center; margin-left:54px; color:var(--text-secondary); font-size:16px;}
+.timer-top {background:none; min-height:0; display:block; position:static;}
+.timer-top .nav-btn {top:24px; left:24px; background:var(--bg-secondary); color:var(--text-primary);}
+.timer-image-area {padding:0; height:auto; margin-top:24px;}
+.timer-image-area:has(.timer-image-placeholder:not(.hidden)) {display:none;}
+.timer-image {max-width:100%; max-height:240px; border-radius:16px;}
+.timer-bottom {padding:28px 0 0; background:none; gap:0; flex:none;}
+.timer-phase-label {color:var(--accent); font-size:12px; margin-bottom:12px;}
+.timer-exercise-name {font-size:32px; font-weight:600; color:var(--text-primary)!important; max-width:100%; overflow-wrap:anywhere;}
+.active-dial {height:340px; width:340px; max-width:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; position:relative; margin:22px 0;}
+.active-dial svg {position:absolute; inset:0; width:100%; height:100%; fill:none; stroke-width:7; transform:rotate(-90deg);}
+.active-track {stroke:var(--border);}
+#timer-ring {stroke:var(--accent); stroke-dasharray:100; stroke-linecap:round; transition:stroke-dashoffset .12s linear;}
+.timer-countdown,.timer-countdown.custom-color {font-size:86px; letter-spacing:-4px; font-weight:650; color:var(--text-primary)!important;}
+#timer-status {font-size:11px; letter-spacing:2px; color:var(--text-secondary); margin-top:14px;}
+.timer-up-next {font-size:14px; color:var(--text-secondary); margin-bottom:20px;}
+.timer-stats {width:100%; max-width:470px; gap:0; margin:0;}
+.timer-stat {background:none; border-radius:0; flex:1; padding:6px 10px; border-right:1px solid var(--border);}
+.timer-stat:last-child {border:0;}
+.stat-current,.stat-value {font-size:28px; font-weight:600;}
+.stat-label {font-size:10px; font-weight:400; letter-spacing:1px; margin-top:7px;}
+.timer-controls {margin-top:24px; align-items:center; gap:12px; flex-wrap:wrap; justify-content:center;}
+.ctrl-btn {width:48px; height:48px; border:1px solid var(--border); border-radius:10px;}
+.ctrl-btn svg {width:22px; height:22px;}
+#btn-pause {order:1; width:156px; height:56px; background:var(--accent); color:#202916; border:0; gap:10px; font-size:16px; font-weight:700;}
+#btn-prev {order:0;} #btn-next {order:2;} #btn-timer-reset {order:3;}
+.timer-bottom.phase-rest #timer-ring {stroke:var(--color-rest);}
+.timer-bottom.phase-recovery #timer-ring {stroke:var(--color-recovery);}
+/* Forms, settings and completion retain existing data and media workflows. */
+#screen-settings,#screen-editor {max-width:760px; margin:28px auto 0; padding-bottom:24px;}
+.screen-header {background:var(--bg-primary); padding:12px 0 20px; gap:16px;}
+.screen-header h2 {font-size:28px; letter-spacing:-.6px;}
+.nav-btn {background:var(--bg-secondary); border-radius:10px;}
+.nav-btn.save-btn {background:var(--accent); color:#202916; width:auto; padding:0 14px; gap:6px;}
+.save-btn span {font-size:14px;font-weight:600;}
+.settings-autosave {font-size:12px; color:var(--text-secondary);}
+.settings-body,.editor-body {padding:28px 0;}
+.settings-section,.editor-section {margin-bottom:28px;}
+.settings-section h3,.editor-section h3,.editor-label {font-size:12px; color:var(--text-secondary); letter-spacing:1px; margin-bottom:12px;}
+.settings-row,.editor-row {min-height:66px; gap:10px;}
+.editor-row label {white-space:normal; flex-shrink:1; line-height:1.4;}
+.settings-row label {line-height:1.4;}
+.editor-input {font-size:16px;}
+.num-btn {border-radius:8px; width:40px; height:40px;}
+.number-input {gap:6px; flex-shrink:0;}
+.number-input input {width:58px; font-size:16px;}
+.set-card {width:100%; color:var(--text-primary); text-align:left; border-left:0; border-right:0; border-top:0;}
+.set-card-thumb:has(svg) {display:none;}
+.set-edit-label { font-size:12px; color:var(--text-secondary);}
+.btn-primary {background:var(--accent); color:#202916; font-size:15px;}
+.btn-secondary,.btn-danger {font-size:14px; min-height:44px;}
+.sync-help {line-height:1.7;}
+.toggle:checked:after {background:#202916;}
+.modal {align-items:center; padding:24px; background:rgba(0,0,0,.7); backdrop-filter:blur(5px);}
+.modal-content {max-width:560px; border-radius:20px; border:1px solid var(--border); max-height:90dvh;}
+.modal-body .editor-row:first-child {align-items:flex-start; flex-direction:column;}
+.modal-body .editor-row:first-child input {width:100%;}
+.complete-content {min-height:calc(100dvh - 70px); height:auto; gap:22px;}
+.complete-content h1 {font-size:42px; letter-spacing:-1.4px;}
+.complete-message {color:var(--text-secondary); line-height:1.5;}
+.complete-stats {margin:18px 0;}
+.complete-stat label {font-size:11px; display:block; margin-top:8px;}
+@media(min-width:1500px) {.home-intro{padding-top:48px;padding-bottom:36px;} .duration-dial{width:294px;height:294px;} .workout-preview{padding:26px;} }
+@media(max-width:1360px) {.header-inner,#screen-home {margin-left:40px;margin-right:40px;} .workout-layout{grid-template-columns:310px minmax(0,1fr);gap:28px;} }
+@media(max-width:900px) {.header-inner,#screen-home{margin-left:24px;margin-right:24px;} .workout-layout{grid-template-columns:245px minmax(0,1fr);gap:20px;} .preview-heading{flex-wrap:wrap;} .preview-heading h1{font-size:28px;} .preview-heading p{font-size:14px;} .home-intro h1{font-size:38px;} #screen-editor,#screen-settings{margin-left:24px;margin-right:24px;} }
+@media(max-width:650px) {
+ .app-header{height:64px;padding-top:env(safe-area-inset-top);box-sizing:content-box;}
+ .header-inner,#screen-home{margin-left:20px;margin-right:20px;}
+ .brand{font-size:17px;gap:8px;}.brand svg{width:25px;} .header-inner nav{gap:14px;}.nav-link{font-size:12px;padding:0 3px;}
+ .home-intro{padding:32px 0 28px;text-align:left;}.home-intro h1{font-size:36px;line-height:1.1;letter-spacing:-1.4px;max-width:340px;}.home-intro p{font-size:15px;margin-top:12px;max-width:290px;}
+ .workout-layout{display:flex;flex-direction:column;gap:24px;}.library,.workout-preview{width:100%;}
+ .section-heading{margin-bottom:12px;}.section-heading h2{font-size:18px;}.workout-card{min-height:92px;}.workout-select{padding:14px;}.workout-card-time{margin-top:6px;font-size:14px;}.workout-card-name{font-size:17px;}.workout-card-detail{margin-top:5px;font-size:13px;}.workout-card-actions{flex-direction:row;padding:10px;align-items:center;}
+ .btn-add-workout{padding:14px;margin-top:12px;font-size:14px;}.library-note{display:none;}
+ .workout-preview{padding:20px;border-radius:16px;}.preview-heading{flex-wrap:nowrap;gap:8px;}.preview-heading h1{font-size:25px;}.preview-heading p{font-size:13px;}.preview-heading .subtle-btn{padding:10px;}.preview-heading .subtle-btn span{display:none;}
+ .duration-dial{height:245px;width:245px;margin:22px auto;}.duration-dial strong{font-size:67px;}.preview-stats dd{font-size:24px;}.preview-stats dt{font-size:13px;}.start-cta{min-height:54px;font-size:16px;}
+ .sequence-panel{padding:18px;margin-top:20px;}.sequence-step{min-width:48px;}.sequence-panel h2{font-size:17px;}.app-footer{margin-top:24px;line-height:1.5;padding-bottom:env(safe-area-inset-bottom);}.keyboard-help{display:none;}
+ #screen-timer{padding:20px 16px 24px;}.timer-top .nav-btn{top:20px;left:16px;}.session-heading{font-size:14px;}.session-heading .subtle-btn{font-size:12px;padding:10px;}.timer-bottom{padding-top:24px;}.active-dial{width:290px;height:290px;margin:18px 0;}.timer-countdown,.timer-countdown.custom-color{font-size:76px;}.timer-exercise-name{font-size:28px;}.timer-controls{gap:8px;}#btn-pause{width:130px;}.ctrl-btn{width:44px;height:44px;}.timer-image{max-height:200px;}
+ #screen-settings,#screen-editor{margin:16px 16px 0;}.screen-header h2{font-size:23px;}.settings-autosave{font-size:10px;max-width:65px;text-align:right;}.settings-row,.editor-row{padding:12px;}.settings-row label,.editor-row label{font-size:14px;}.settings-row select{font-size:13px;max-width:165px;padding:8px;}.number-input input{width:48px;}.number-input{gap:4px;}.num-btn{width:34px;height:38px;}.unit{font-size:12px;}
+ .modal{padding:12px;}.modal-content{border-radius:16px;max-height:94dvh;}.modal-body{padding:14px;}.modal-header,.modal-footer{padding:14px;}.complete-content{padding:24px;}.complete-content h1{font-size:33px;}.complete-stats{gap:24px;}.complete-stat span{font-size:29px;}
+}
+@media(prefers-reduced-motion:reduce) {*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important;}}
+
+/* Direct-to-workout entry, as requested. */
+#screen-home {padding-top:40px;}
+@media(max-width:650px){#screen-home{padding-top:24px;}}
+
+@media(max-height:850px) and (min-width:651px) {
+ #screen-timer{padding-bottom:20px;}
+ .timer-bottom{padding-top:18px;}
+ .active-dial{height:270px;width:270px;margin:14px 0;}
+ .timer-countdown,.timer-countdown.custom-color{font-size:72px;}
+ .timer-up-next{margin-bottom:14px;}
+ .timer-controls{margin-top:14px;}
+}
+
+@media(max-width:650px){.workout-list{max-height:260px;overflow-y:auto;padding:2px; margin:-2px;}.duration-dial{width:230px;height:230px;}}
+[data-theme="light"] .sync-help a,[data-theme="light"] .timer-phase-label {color:#587518;}
+/* Local family profiles and explicit workout deletion. */
+.header-tools{display:flex;align-items:center;gap:24px;height:100%;}
+.header-tools nav{height:100%;}
+#profile-button{max-width:220px;gap:8px;}
+#profile-current{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#profile-button svg{width:16px;height:16px;}
+.workout-card-actions .btn-delete{width:auto;padding:0 8px;display:flex;align-items:center;gap:5px;font-size:12px;color:#f1a49a;}
+.workout-card-actions .btn-delete svg{width:14px;height:14px;}
+.empty-workouts{min-height:440px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:20px;padding:40px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:20px;}
+.empty-workouts h1{font-size:32px;letter-spacing:-.6px;}
+.empty-workouts p{color:var(--text-secondary);line-height:1.6;}
+.empty-workouts .start-cta{width:auto;padding:0 24px;}
+.app-dialog{margin:auto;padding:28px;width:min(500px,calc(100vw - 32px));max-height:85dvh;overflow:auto;color:var(--text-primary);background:var(--bg-secondary);border:1px solid var(--border);border-radius:20px;}
+.app-dialog::backdrop{background:rgba(0,0,0,.7);backdrop-filter:blur(4px);}
+.app-dialog h2{font-size:24px;letter-spacing:-.5px;}
+.app-dialog p{color:var(--text-secondary);line-height:1.5;margin:14px 0;}
+.dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.profile-list{display:flex;flex-direction:column;gap:10px;margin:22px 0;}
+.profile-option{padding:16px;text-align:left;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:10px;font-size:16px;cursor:pointer;overflow-wrap:anywhere;}
+.profile-option.selected{border-color:var(--accent);}
+#profile-form label{display:block;font-size:14px;margin-bottom:10px;}
+.profile-form-row{display:flex;gap:10px;}.profile-form-row input{min-width:0;}.profile-form-row button{flex-shrink:0;}
+.dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px;}
+#profile-error{color:#f1a49a;}
+@media(max-width:650px){.app-header{height:auto;}.header-inner{flex-wrap:wrap;padding-top:14px;}.header-tools{width:100%;justify-content:space-between;gap:12px;height:62px;}#profile-button{max-width:55%;}.header-tools nav{height:62px;}.empty-workouts{min-height:300px;padding:24px;}.empty-workouts h1{font-size:26px;}.app-dialog{padding:20px;}.profile-form-row{flex-wrap:wrap;}.profile-form-row input{width:100%;}.profile-form-row button{width:100%;}}
