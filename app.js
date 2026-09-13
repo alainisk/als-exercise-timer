@@ -190,8 +190,14 @@ async function withProfileOperation(action) {
   }
 }
 function loadProfiles() {
-  const saved = JSON.parse(localStorage.getItem(PROFILE_STORAGE_KEY) || 'null');
-  profiles = saved?.profiles?.length ? saved.profiles : [{id:'default', name:'My profile'}];
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(PROFILE_STORAGE_KEY) || 'null'); } catch (error) { /* Recover the original library when metadata is malformed. */ }
+  const seen = new Set();
+  profiles = (Array.isArray(saved?.profiles) ? saved.profiles : []).filter(profile => {
+    if (!profile || typeof profile.id !== 'string' || !profile.id.trim() || typeof profile.name !== 'string' || !profile.name.trim() || seen.has(profile.id)) return false;
+    seen.add(profile.id); return true;
+  });
+  if (!profiles.length) profiles = [{id:'default', name:'My profile'}];
   activeProfileId = profiles.some(p => p.id === saved?.activeId) ? saved.activeId : profiles[0].id;
   persistProfiles();
 }
@@ -1480,7 +1486,7 @@ function exportWorkouts() {
 }
 
 function validateWorkoutData(workouts) {
-  if (!Array.isArray(workouts) || !workouts.length || workouts.length > 1000) throw new Error('Backup must contain workouts.');
+  if (!Array.isArray(workouts) || workouts.length > 1000) throw new Error('Backup must contain a workout list.');
   const ids = new Set();
   const integer = (n,min,max) => Number.isInteger(n) && n >= min && n <= max;
   const text = value => typeof value === 'string' && value.length > 0 && value.length <= 1000;
@@ -1504,6 +1510,25 @@ function validateWorkoutData(workouts) {
   }
 }
 
+// Persist the entire merge before updating the visible library or preferences.
+async function mergeWorkouts(workouts, preferences) {
+  validateWorkoutData(workouts);
+  const merged = new Map(state.workouts.map(w => [w.id,w]));
+  for (const workout of workouts) merged.set(workout.id,workout);
+  const activeId = merged.has(state.activeWorkoutId) ? state.activeWorkoutId : merged.keys().next().value || null;
+  const settings = {...state.settings,...(preferences ? portableSettings(preferences) : {}),lastActiveWorkoutId:activeId};
+  await new Promise((resolve,reject) => {
+    const tx = db.transaction(['workouts','settings'],'readwrite');
+    for (const workout of workouts) tx.objectStore('workouts').put(workout);
+    tx.objectStore('settings').put({key:'app-settings',value:settings});
+    tx.oncomplete = resolve;
+    tx.onerror = tx.onabort = () => reject(tx.error || new Error('Could not save imported workouts.'));
+  });
+  state.workouts = [...merged.values()];
+  state.settings = settings;
+  state.activeWorkoutId = activeId;
+}
+
 async function importWorkouts(file) { return withProfileOperation(() => importWorkoutsInternal(file)); }
 async function importWorkoutsInternal(file) {
   try {
@@ -1513,13 +1538,8 @@ async function importWorkoutsInternal(file) {
       alert('Invalid backup file.');
       return;
     }
-    validateWorkoutData(data.workouts);
-    for (const w of data.workouts) {
-      await saveWorkout(w);
-    }
+    await mergeWorkouts(data.workouts, data.settings);
     if (data.settings) {
-      Object.assign(state.settings, portableSettings(data.settings));
-      await saveSettings();
       document.documentElement.setAttribute('data-theme', state.settings.theme);
       loadSettingsUI();
     }
@@ -1648,29 +1668,7 @@ async function pullFromGistInternal() {
     const content = gist.files[GIST_FILENAME]?.content;
     if (!content) return;
     const remote = JSON.parse(content);
-    validateWorkoutData(remote.workouts);
-
-    // Merge: remote workouts override local by ID, add new ones
-    const localMap = new Map(state.workouts.map(w => [w.id, w]));
-    const remoteMap = new Map(remote.workouts.map(w => [w.id, w]));
-
-    // Add/update all remote workouts locally
-    for (const [id, rw] of remoteMap) {
-      localMap.set(id, rw);
-    }
-
-    // Also push any local-only workouts to remote on next push
-    state.workouts = Array.from(localMap.values());
-
-    // Save all to IndexedDB
-    for (const w of state.workouts) {
-      await dbPut('workouts', w);
-    }
-
-    if (state.activeWorkoutId && !localMap.has(state.activeWorkoutId)) {
-      state.activeWorkoutId = state.workouts[0]?.id || null;
-      await saveSettings();
-    }
+    await mergeWorkouts(remote.workouts);
 
     renderHomeWorkoutList();
     updateSyncUI('connected', 'Synced ' + new Date().toLocaleTimeString());
@@ -1943,6 +1941,7 @@ function bindEvents() {
   });
   document.getElementById('workout-image-input').addEventListener('change', async e => {
     const file = e.target.files[0];
+    e.target.value = ''; // Allow choosing the same file again after clearing or cancelling.
     if (!file) return;
     const workout = state.editingWorkout;
     const dataUrl = await resizeImage(file, 600);
@@ -1984,6 +1983,7 @@ function bindEvents() {
   });
   document.getElementById('set-image-input').addEventListener('change', async e => {
     const file = e.target.files[0];
+    e.target.value = ''; // Allow choosing the same file again after clearing or cancelling.
     if (!file) return;
     const draft = setDraft;
     const dataUrl = await resizeImage(file);
@@ -2008,6 +2008,7 @@ function bindEvents() {
   });
   document.getElementById('set-video-input').addEventListener('change', async e => {
     const file = e.target.files[0];
+    e.target.value = ''; // Allow choosing the same file again after clearing or cancelling.
     if (!file) return;
     if (file.size > 50 * 1024 * 1024) {
       alert('Video must be under 50MB.');
@@ -2073,7 +2074,7 @@ function bindEvents() {
 // ─── PWA Registration ───────────────────────────────────────
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=20260913-4').catch(() => {});
+    navigator.serviceWorker.register('./sw.js?v=20260913-5').catch(() => {});
   }
 }
 

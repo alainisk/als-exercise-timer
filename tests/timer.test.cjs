@@ -27,7 +27,8 @@ function app() {
     saveSettings = () => Promise.resolve();
     state.workouts = [structuredClone(DEFAULT_WORKOUT)];
     state.activeWorkoutId = DEFAULT_WORKOUT.id;
-    globalThis.testApp = {state, DEFAULT_WORKOUT, buildPhaseSequence, calcWorkoutTotalTime, pauseTimer, startPhase, skipToNext, timerTick, portableSettings, validateWorkoutData, commitEditedWorkout, discardEditorMedia, loadData, profileDatabase, deleteWorkout, deleteProfile, cloneForTransfer, transferWorkout, workoutHash, parseWorkoutHash,
+    globalThis.testApp = {state, DEFAULT_WORKOUT, buildPhaseSequence, calcWorkoutTotalTime, pauseTimer, startPhase, skipToNext, timerTick, portableSettings, validateWorkoutData, commitEditedWorkout, discardEditorMedia, loadData, profileDatabase, deleteWorkout, deleteProfile, cloneForTransfer, transferWorkout, workoutHash, parseWorkoutHash, loadProfiles, mergeWorkouts,
+      registry(raw) {localStorage.getItem=()=>raw;},
       transferFixture(write,read,remove) {profiles=[{id:"default"},{id:"son"}]; activeProfileId="default"; writeTransferredWorkout=write; dbGet=read; deleteWorkout=remove;},
       profileFixture(items,active,clear) { profiles=items; activeProfileId=active; clearProfileData=clear; switchProfile=async id=>{activeProfileId=id;}; },
       profileState() {return {profiles,activeProfileId};},
@@ -337,4 +338,39 @@ test('Workout URL safely encodes IDs and rejects malformed links', () => {
   assert.equal(route.workoutId,'work out#1');
   assert.equal(a.parseWorkoutHash('#/workout/a/%ZZ'),null);
   assert.equal(a.parseWorkoutHash('#/workout/a'),null);
+});
+
+
+test('Malformed profile metadata recovers the original library', () => {
+  const a=app(); a.registry('{broken'); a.loadProfiles();
+  assert.equal(a.profileState().activeProfileId,'default');
+});
+
+test('Invalid and duplicate profile entries do not hide surviving profiles', () => {
+  const a=app(); a.registry(JSON.stringify({profiles:[null,{id:'son',name:'Son'},{id:'son',name:'Duplicate'},{id:5,name:'Invalid'}],activeId:'son'}));
+  a.loadProfiles();
+  assert.equal(a.profileState().profiles.length,1);
+  assert.equal(a.profileState().activeProfileId,'son');
+});
+
+test('An empty profile backup is valid', () => {
+  assert.doesNotThrow(()=>app().validateWorkoutData([]));
+});
+
+test('Import failure keeps visible workouts and preferences unchanged', async () => {
+  const a=app(), original=a.state.workouts;
+  a.database({transaction(){const tx={error:new Error('quota exceeded'),objectStore(){return {put(){}};}};queueMicrotask(()=>tx.onabort());return tx;}});
+  const workout=structuredClone(a.DEFAULT_WORKOUT); workout.id='imported';
+  await assert.rejects(a.mergeWorkouts([workout],{theme:'light'}),/quota exceeded/);
+  assert.equal(a.state.workouts,original);
+  assert.notEqual(a.state.settings.theme,'light');
+});
+
+test('Import commits workouts and preferences together and selects a workout in an empty profile', async () => {
+  const a=app(), stores=[]; a.state.workouts=[]; a.state.activeWorkoutId=null;
+  a.database({transaction(names){assert.equal(Array.from(names).join(','),'workouts,settings');const tx={objectStore(name){return {put(){stores.push(name);}};}};queueMicrotask(()=>tx.oncomplete());return tx;}});
+  await a.mergeWorkouts([a.DEFAULT_WORKOUT],{syncToken:'must-not-import'});
+  assert.deepEqual(stores,['workouts','settings']);
+  assert.equal(a.state.activeWorkoutId,a.DEFAULT_WORKOUT.id);
+  assert.notEqual(a.state.settings.syncToken,'must-not-import');
 });
