@@ -1,5 +1,5 @@
-const CACHE_NAME = 'als-timer-v14';
-const ASSETS = ['./drive-media.js?v=20260913-7', './family-sync.js?v=20260913-7', './favicon.png?v=20260913-2', './index.html', './styles.css', './redesign.css?v=20260913-7', './app.js?v=20260913-7', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE_NAME = 'als-timer-v15';
+const ASSETS = ['./cloud-config.js?v=20260913-8', './cloud-media.js?v=20260913-8', './drive-media.js?v=20260913-8', './family-sync.js?v=20260913-8', './favicon.png?v=20260913-2', './index.html', './styles.css', './redesign.css?v=20260913-8', './app.js?v=20260913-8', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));

@@ -37,7 +37,7 @@ function createServer(store,{root=__dirname,origins=[]}={}){
     if(origin&&!allowed.has(origin))return json(403,{error:'Origin not allowed'});
     if(origin){res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');res.setHeader('Access-Control-Expose-Headers','ETag');}
     if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Methods':'GET,PUT,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type,If-Match,X-Firebase-ETag','Access-Control-Max-Age':'600'});return res.end();}
-    if(path==='/api/health')return json(200,{ok:true,storage:!!store});
+    if(path==='/api/health')return json(store?200:503,{ok:!!store,storage:!!store});
     if(!store)return json(503,{error:'Cloud storage is not configured'});
     const match=path.match(/^\/api\/families\/([a-f0-9]{64})(?:\/(revision|media\/([a-f0-9]{64})))?$/);
     if(!match)return json(404,{error:'Not found'});

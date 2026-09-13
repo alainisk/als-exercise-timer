@@ -234,3 +234,5 @@ svg {flex-shrink:0;}
 #drive-status { overflow-wrap: anywhere; }
 .workout-tools { flex-wrap: wrap; }
 .workout-tools button { flex: 1 1 145px; }
+
+.cloud-controls {margin-top:22px;padding-top:18px;border-top:1px solid #41463d}.cloud-controls h3{font-size:16px}.cloud-controls a{color:#cfe97d}.drive-controls[hidden]{display:none}

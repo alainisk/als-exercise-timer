@@ -3,6 +3,7 @@
 (() => {
 'use strict';
 const ENDPOINT = 'https://tabata-timer-d9aae-default-rtdb.firebaseio.com';
+const CLOUD=window.TABATA_CLOUD_API;
 const TOKEN_KEY = 'tabata-family-key-v1';
 const validToken = token => /^[a-f0-9]{64}$/.test(token || '');
 const fragmentToken = new URLSearchParams(location.hash.split('?')[1] || '').get('family');
@@ -21,7 +22,7 @@ async function address(key=token) {return hex(await crypto.subtle.digest('SHA-25
 async function cipherKey(key=token) {return crypto.subtle.importKey('raw',bytes(key),'AES-GCM',false,['encrypt','decrypt']);}
 async function seal(data,key=token) {
   const plain=new TextEncoder().encode(JSON.stringify(data));
-  if(plain.length>100*1024*1024)throw new Error('The workout metadata is too large to sync. Your local library is safe; media should be stored separately in Drive.');
+  if(plain.length>100*1024*1024)throw new Error('The workout metadata is too large to sync. Your local library is safe; media is stored separately.');
   const iv=crypto.getRandomValues(new Uint8Array(12));
   const cipher=encode(await crypto.subtle.encrypt({name:'AES-GCM',iv},await cipherKey(key),plain));
   const chunks=[];for(let i=0;i<cipher.length;i+=1000000)chunks.push(cipher.slice(i,i+1000000));
@@ -33,7 +34,21 @@ async function unseal(data,key=token) {
   return JSON.parse(new TextDecoder().decode(plain));
 }
 async function request(path='',options={},key=token) {
-  const response=await fetch(`${ENDPOINT}/families/${await address(key)}${path}.json`,{cache:'no-store',referrerPolicy:'no-referrer',...options,signal:AbortSignal.timeout(120000)});
+  const id=await address(key);
+  let response;
+  if(CLOUD){
+    const auth=hex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('tabata-api:'+key)));
+    const headers={...options.headers,Authorization:'Bearer '+auth};
+    const url=CLOUD+'/families/'+id;
+    response=await fetch(url+path,{cache:'no-store',referrerPolicy:'no-referrer',...options,headers,signal:AbortSignal.timeout(120000)});
+    // A legacy link is copied once. Firebase remains untouched for recovery.
+    if((!options.method||options.method==='GET')&&response.ok&&await response.clone().json()===null){
+      const legacy=await fetch(`${ENDPOINT}/families/${id}.json`,{cache:'no-store',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(120000)});
+      if(!legacy.ok)throw Error('Could not check the older family library. Retry when online.');
+      const old=await legacy.json();
+      if(old){const decoded=await unseal(old,key);adapter.validate(decoded);const migrated=adapter.externalize?await adapter.externalize(decoded):decoded;const migratedCipher=await seal(migrated,key);const saved=await fetch(url,{method:'PUT',headers:{Authorization:'Bearer '+auth,'Content-Type':'application/json','if-match':'null_etag'},body:JSON.stringify(migratedCipher),signal:AbortSignal.timeout(120000)});if(!saved.ok&&saved.status!==412)throw Error('Could not migrate the family library. Local data is safe.');response=await fetch(url+path,{headers,cache:'no-store',signal:AbortSignal.timeout(120000)});}
+    }
+  }else response=await fetch(`${ENDPOINT}/families/${id}${path}.json`,{cache:'no-store',referrerPolicy:'no-referrer',...options,signal:AbortSignal.timeout(120000)});
   if(!response.ok && response.status!==412)throw new Error(response.status===401||response.status===403?'Family access was denied. Check the link.':'Could not reach family storage. Your local changes are safe; retry when online.');
   return response;
 }
@@ -104,18 +119,19 @@ async function sync(force=false) {
 }
 async function create() {
   if(busy||!adapter.idle())return;busy=true;
+  const previous=token;const next=hex(crypto.getRandomValues(new Uint8Array(32)));
   try {await adapter.lock(async()=>{
     status('Creating private family link…');
+    if(CLOUD)token=next;
     const data=await adapter.snapshot();adapter.validate(data);
-    const next=hex(crypto.getRandomValues(new Uint8Array(32)));
     const encrypted=await seal(data,next);
     const result=await request('',{method:'PUT',headers:{'Content-Type':'application/json','if-match':'null_etag'},body:JSON.stringify(encrypted)},next);
     if(result.status===412)throw new Error('Please try creating the family link again.');
     token=next;localStorage.setItem(TOKEN_KEY,token);
     location.hash='#/?family='+token;location.reload();
-  });}catch(error){status(error.message);}finally{busy=false;}
+  });}catch(error){token=previous;status(error.message);}finally{busy=false;}
 }
-function link() {return location.origin+location.pathname+'#/?family='+token;}
+function link() {return (CLOUD?new URL(CLOUD).origin+'/':location.origin+location.pathname)+'#/?family='+token;}
 function show() {
   const dialog=document.getElementById('family-dialog');
   document.getElementById('family-create').hidden=!!token;

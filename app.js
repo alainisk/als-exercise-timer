@@ -2167,6 +2167,7 @@ async function familySnapshot(){
       const records=new Map(stored.map(v=>[v.setId,v])),videos=[];
       for(const workout of workouts){
         for(const item of [workout,...workout.sets]){
+          if(!item.image&&item.imageRef?.provider==='drive'&&window.TABATA_CLOUD_API)item.image=await window.DriveMedia.dataURL(await window.DriveMedia.get(item.imageRef));
           if(item.image){item.imageRef=await window.DriveMedia.upload(await window.DriveMedia.fromDataURL(item.image),item.name+' image',item.imageRef);}
           item.image=null;
         }
@@ -2174,7 +2175,8 @@ async function familySnapshot(){
           if(!set.video)continue;
           const record=records.get(set.id);
           if(!record)throw new Error('A video is missing for '+set.name+'. Reattach it or remove its video before syncing.');
-          const ref=record.blob?await window.DriveMedia.upload(record.blob,set.name+' video',record.drive):record.drive;
+          const blob=record.blob||(record.drive?.provider==='drive'&&window.TABATA_CLOUD_API?await window.DriveMedia.get(record.drive):null);
+          const ref=blob?await window.DriveMedia.upload(blob,set.name+' video',record.drive):record.drive;
           if(!window.DriveMedia.validRef(ref))throw new Error('A video has no local file or Drive reference.');
           records.set(set.id,{...record,drive:ref});
           videos.push({setId:set.id,drive:ref});
@@ -2192,10 +2194,11 @@ async function externalizeFamily(data){
   const out=structuredClone(data);out.version=2;
   for(const profile of out.profiles){
     for(const workout of profile.workouts)for(const item of [workout,...workout.sets]){
+      if(!item.image&&item.imageRef?.provider==='drive'&&window.TABATA_CLOUD_API)item.image=await window.DriveMedia.dataURL(await window.DriveMedia.get(item.imageRef));
       if(item.image)item.imageRef=await window.DriveMedia.upload(await window.DriveMedia.fromDataURL(item.image),item.name+' image',item.imageRef);
       item.image=null;
     }
-    for(const video of profile.videos){if(video.data){video.drive=await window.DriveMedia.upload(await window.DriveMedia.fromDataURL(video.data),'Exercise video',video.drive);delete video.data;}}
+    for(const video of profile.videos){if(!video.data&&video.drive?.provider==='drive'&&window.TABATA_CLOUD_API)video.data=await window.DriveMedia.dataURL(await window.DriveMedia.get(video.drive));if(video.data){video.drive=await window.DriveMedia.upload(await window.DriveMedia.fromDataURL(video.data),'Exercise video',video.drive);delete video.data;}}
   }
   return out;
 }
