@@ -1,0 +1,13 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const {webcrypto}=require('node:crypto');
+const ctx=vm.createContext({window:{},crypto:webcrypto,Map,Date,Blob,Uint8Array,AbortSignal,fetch});
+vm.runInContext(fs.readFileSync(require.resolve('../drive-media.js'),'utf8'),ctx);
+const {hash,validRef,sendChunks}=ctx.window.DriveMedia.testing;
+test('Media hashes identify content without embedding it in Firebase',async()=>{const a=new Blob(['abc']),b=new Blob(['abcd']);assert.equal(await hash(a),'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');assert.notEqual(await hash(a),await hash(b));});
+test('Media references reject malformed IDs and sizes',()=>{const ref={provider:'drive',id:'file_123',hash:'a'.repeat(64),size:5,mimeType:'video/mp4'};assert.equal(validRef(ref),true);assert.equal(validRef({...ref,id:'../../other'}),false);assert.equal(validRef({...ref,size:-1}),false);});
+test('Resumable upload sends bounded chunks and finishes with file ID',async()=>{const blob=new Blob([new Uint8Array(5*1024*1024)]);const ranges=[];const result=await sendChunks('https://example.test',blob,()=>{},async(_u,o)=>{ranges.push(o.headers['Content-Range']);return ranges.length===1?new Response(null,{status:308,headers:{Range:'bytes=0-4194303'}}):new Response(JSON.stringify({id:'done'}));});assert.equal(result.id,'done');assert.deepEqual(ranges,['bytes 0-4194303/5242880','bytes 4194304-5242879/5242880']);});
+test('An uncertain upload response probes server progress before resuming',async()=>{let call=0;const ranges=[];const result=await sendChunks('https://example.test',new Blob(['abcdef']),()=>{},async(_u,o)=>{ranges.push(o.headers['Content-Range']);if(++call===1)throw Error('connection lost');if(call===2)return new Response(null,{status:308,headers:{Range:'bytes=0-2'}});return new Response(JSON.stringify({id:'done'}));});assert.equal(result.id,'done');assert.deepEqual(ranges,['bytes 0-5/6','bytes */6','bytes 3-5/6']);});
+test('Repeated failures stop instead of looping forever',async()=>{let calls=0;await assert.rejects(sendChunks('https://example.test',new Blob(['abc']),()=>{},async()=>{calls++;throw Error('offline');}),/interrupted/);assert.ok(calls<=6);});

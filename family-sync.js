@@ -21,7 +21,7 @@ async function address(key=token) {return hex(await crypto.subtle.digest('SHA-25
 async function cipherKey(key=token) {return crypto.subtle.importKey('raw',bytes(key),'AES-GCM',false,['encrypt','decrypt']);}
 async function seal(data,key=token) {
   const plain=new TextEncoder().encode(JSON.stringify(data));
-  if(plain.length>100*1024*1024)throw new Error('This family library is too large to sync. Remove some videos or use smaller files. Your local workouts are safe.');
+  if(plain.length>100*1024*1024)throw new Error('The workout metadata is too large to sync. Your local library is safe; media should be stored separately in Drive.');
   const iv=crypto.getRandomValues(new Uint8Array(12));
   const cipher=encode(await crypto.subtle.encrypt({name:'AES-GCM',iv},await cipherKey(key),plain));
   const chunks=[];for(let i=0;i<cipher.length;i+=1000000)chunks.push(cipher.slice(i,i+1000000));
@@ -43,7 +43,7 @@ async function meta(value) {
 }
 // Three-way merge preserves independent edits and keeps both conflicting workouts.
 function merge(base,local,remote) {
-  const out={version:1,profiles:[]};const index=list=>new Map((list||[]).map(p=>[p.id,p]));
+  const out={version:Math.max(base?.version||1,local.version||1,remote.version||1),profiles:[]};const index=list=>new Map((list||[]).map(p=>[p.id,p]));
   const bm=index(base?.profiles),lm=index(local.profiles),rm=index(remote.profiles);
   for(const id of new Set([...bm.keys(),...lm.keys(),...rm.keys()])) {
     const b=bm.get(id),l=lm.get(id),r=rm.get(id);
@@ -82,7 +82,8 @@ async function sync(force=false) {
         const remoteCipher=await response.json();
         if(!remoteCipher)throw new Error('This family link no longer exists. Local workouts are safe.');
         const remote=await unseal(remoteCipher);adapter.validate(remote);
-        const merged=baseline?merge(baseline.data,local,remote):remote;
+        let merged=baseline?merge(baseline.data,local,remote):remote;
+        if(baseline && adapter.externalize)merged=await adapter.externalize(merged);
         let nextRevision=remoteCipher.revision;
         if(!same(merged,remote)) {
           const encrypted=await seal(merged);
@@ -137,6 +138,7 @@ window.FamilySync={
     document.getElementById('family-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(link());status('Family link copied');}catch{const input=document.getElementById('family-link');input.focus();input.select();status('Select and copy the family link.');}});
     document.getElementById('family-join').addEventListener('click',()=>{try{const url=new URL(document.getElementById('family-join-url').value);const key=new URLSearchParams(url.hash.split('?')[1]).get('family');if(!validToken(key))throw Error();location.hash='#/?family='+key;location.reload();}catch{status('Paste a valid family link.');}});
     window.addEventListener('online',()=>sync());
+    window.addEventListener('tabata-drive-connected',()=>sync(true));
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync();});
     if(token){
       await sync(true);

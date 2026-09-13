@@ -128,12 +128,13 @@ async function saveVideoBlob(setId, blob, mimeType) {
 async function getVideoBlobURL(setId) {
   if (videoBlobURLs[setId]) return videoBlobURLs[setId];
   try {
-    const record = await dbGet('videos', setId);
+    let record = await dbGet('videos', setId);
+    if(record?.drive && !record.blob){const owner=db;const blob=await window.DriveMedia.get(record.drive);if(db!==owner)return null;record={...record,blob,mimeType:blob.type};await dbPut('videos',record);}
     if (record?.blob) {
       videoBlobURLs[setId] = URL.createObjectURL(record.blob);
       return videoBlobURLs[setId];
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { const note=document.getElementById('media-notice');if(note)note.textContent=e.message; }
   return null;
 }
 
@@ -1047,7 +1048,7 @@ async function transferWorkout(workoutId, destinationId, mode) {
     for (let i=0; i<source.sets.length; i++) {
       if (!source.sets[i].video) continue;
       const record = await dbGet('videos',source.sets[i].id);
-      if (!record?.blob) throw new Error('An exercise video is missing. Reattach or remove it before transferring.');
+      if (!record?.blob && !window.DriveMedia?.validRef(record?.drive)) throw new Error('An exercise video is missing. Reattach or remove it before transferring.');
       videos.push({...record,setId:copy.sets[i].id});
     }
     await writeTransferredWorkout(destinationId,copy,videos);
@@ -1374,7 +1375,7 @@ function openSetEditor(idx) {
   };
 
   releaseSetDraft();
-  setDraft = {id:set.id, image:set.image, video:set.video, ...(pendingVideos.get(set.id) || {})};
+  setDraft = {id:set.id, image:set.image, imageRef:set.imageRef, video:set.video, ...(pendingVideos.get(set.id) || {})};
   const draft = setDraft;
   document.getElementById('modal-set-title').textContent = idx >= 0 ? `Edit Set ${idx + 1}` : 'New Set';
   document.getElementById('set-name').value = set.name;
@@ -1444,6 +1445,7 @@ async function saveSetFromModal() {
   };
 
   set.image = setDraft.image || null;
+  if(setDraft.imageRef)set.imageRef=setDraft.imageRef;
   set.video = setDraft.video || null;
   const previous = pendingVideos.get(set.id);
   if (previous && previous.url !== setDraft.url) URL.revokeObjectURL(previous.url);
@@ -1747,6 +1749,7 @@ function validateNumbers(container) {
 }
 
 function bindEvents() {
+  document.getElementById('workout-download').addEventListener('click',downloadWorkoutMedia);
   window.addEventListener('hashchange', () => {
     const key = new URLSearchParams(location.hash.split('?')[1] || '').get('family');
     if (key && key !== window.FamilySync?.token && /^[a-f0-9]{64}$/.test(key)) { location.reload(); return; }
@@ -1969,6 +1972,7 @@ function bindEvents() {
     document.getElementById('edit-workout-image-preview').classList.add('hidden');
     document.getElementById('btn-workout-image-clear').classList.add('hidden');
     state.editingWorkout.image = null;
+    delete state.editingWorkout.imageRef;
   });
 
   // Number input +/- buttons
@@ -2012,6 +2016,7 @@ function bindEvents() {
     document.getElementById('set-image-preview').classList.add('hidden');
     document.getElementById('btn-set-image-clear').classList.add('hidden');
     setDraft.image = null;
+    delete setDraft.imageRef;
   });
 
   // Video upload — store as Blob in IndexedDB, use Blob URL for playback
@@ -2086,7 +2091,7 @@ function bindEvents() {
 // ─── PWA Registration ───────────────────────────────────────
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=20260913-6').catch(() => {});
+    navigator.serviceWorker.register('./sw.js?v=20260913-7').catch(() => {});
   }
 }
 
@@ -2153,34 +2158,74 @@ async function familyDatabase(id) {
 }
 function familyRead(database,store){return new Promise((resolve,reject)=>{const req=database.transaction(store).objectStore(store).getAll();req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
 async function familySnapshot(){
-  const result={version:1,profiles:[]};
+  const result={version:2,profiles:[]};
   for(const profile of profiles){
     const database=await familyDatabase(profile.id);
     try {
       const [workouts,stored]=await Promise.all([familyRead(database,'workouts'),familyRead(database,'videos')]);
-      const used=new Set(workouts.flatMap(w=>w.sets.filter(s=>s.video).map(s=>s.id)));
-      const videos=[];
-      for(const record of stored){if(!used.has(record.setId))continue;const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error);reader.readAsDataURL(/^video\//.test(record.blob.type) ? record.blob : new Blob([record.blob],{type:'video/mp4'}));});videos.push({setId:record.setId,data});}
+      const localWorkouts=structuredClone(workouts);
+      const records=new Map(stored.map(v=>[v.setId,v])),videos=[];
+      for(const workout of workouts){
+        for(const item of [workout,...workout.sets]){
+          if(item.image){item.imageRef=await window.DriveMedia.upload(await window.DriveMedia.fromDataURL(item.image),item.name+' image',item.imageRef);}
+          item.image=null;
+        }
+        for(const set of workout.sets){
+          if(!set.video)continue;
+          const record=records.get(set.id);
+          if(!record)throw new Error('A video is missing for '+set.name+'. Reattach it or remove its video before syncing.');
+          const ref=record.blob?await window.DriveMedia.upload(record.blob,set.name+' video',record.drive):record.drive;
+          if(!window.DriveMedia.validRef(ref))throw new Error('A video has no local file or Drive reference.');
+          records.set(set.id,{...record,drive:ref});
+          videos.push({setId:set.id,drive:ref});
+        }
+      }
+      for(let i=0;i<workouts.length;i++){const source=[workouts[i],...workouts[i].sets],target=[localWorkouts[i],...localWorkouts[i].sets];source.forEach((item,j)=>{if(item.imageRef)target[j].imageRef=item.imageRef;});}
+      await new Promise((resolve,reject)=>{const tx=database.transaction(['workouts','videos'],'readwrite');for(const w of localWorkouts)tx.objectStore('workouts').put(w);for(const v of videos)tx.objectStore('videos').put(records.get(v.setId));tx.oncomplete=resolve;tx.onerror=tx.onabort=()=>reject(tx.error);});
       result.profiles.push({...profile,workouts,videos});
     }finally{database.close();}
   }
   return result;
 }
+// Normalize older encrypted libraries without deleting their original local files.
+async function externalizeFamily(data){
+  const out=structuredClone(data);out.version=2;
+  for(const profile of out.profiles){
+    for(const workout of profile.workouts)for(const item of [workout,...workout.sets]){
+      if(item.image)item.imageRef=await window.DriveMedia.upload(await window.DriveMedia.fromDataURL(item.image),item.name+' image',item.imageRef);
+      item.image=null;
+    }
+    for(const video of profile.videos){if(video.data){video.drive=await window.DriveMedia.upload(await window.DriveMedia.fromDataURL(video.data),'Exercise video',video.drive);delete video.data;}}
+  }
+  return out;
+}
 function validateFamily(data){
-  if(data?.version!==1||!Array.isArray(data.profiles)||!data.profiles.length||data.profiles.length>100)throw new Error('Invalid family profiles.');
+  if(![1,2].includes(data?.version)||!Array.isArray(data.profiles)||!data.profiles.length||data.profiles.length>100)throw new Error('Invalid family profiles.');
   const ids=new Set();
   for(const profile of data.profiles){
     if(!profile||typeof profile.id!=='string'||!profile.id||ids.has(profile.id)||typeof profile.name!=='string'||!profile.name.trim())throw new Error('Invalid family profile.');
     ids.add(profile.id);validateWorkoutData(profile.workouts);
-    if(!Array.isArray(profile.videos)||profile.videos.some(v=>typeof v.setId!=='string'||typeof v.data!=='string'||!/^data:video\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(v.data)))throw new Error('Invalid family video.');
+    for(const w of profile.workouts)for(const item of [w,...w.sets])if(item.imageRef&&!window.DriveMedia.validRef(item.imageRef))throw new Error('Invalid image reference.');
+    if(!Array.isArray(profile.videos)||profile.videos.some(v=>typeof v.setId!=='string'||!(window.DriveMedia.validRef(v.drive)||(typeof v.data==='string'&&/^data:video\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(v.data)))))throw new Error('Invalid family video.');
   }
 }
 async function applyFamily(data){
   validateFamily(data);
   for(const profile of data.profiles){
-    const videos=profile.videos.map(video=>{const [header,base64]=video.data.split(',');const raw=atob(base64);const bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));const mimeType=header.slice(5,header.indexOf(';'));return {setId:video.setId,mimeType,blob:new Blob([bytes],{type:mimeType})};});
     const database=await familyDatabase(profile.id);
-    try{await new Promise((resolve,reject)=>{const tx=database.transaction(['workouts','videos','settings'],'readwrite');tx.objectStore('workouts').clear();tx.objectStore('videos').clear();for(const w of profile.workouts)tx.objectStore('workouts').put(w);for(const v of videos)tx.objectStore('videos').put(v);tx.objectStore('settings').put({key:'initialized',value:true});tx.oncomplete=resolve;tx.onabort=tx.onerror=()=>reject(tx.error);});}finally{database.close();}
+    try{
+      const previous=new Map((await familyRead(database,'videos')).map(v=>[v.setId,v]));
+      const videos=[];
+      for(const video of profile.videos){
+        let blob;
+        if(video.data)blob=await window.DriveMedia.fromDataURL(video.data);
+        else {blob=await window.DriveMedia.get(video.drive,false);const old=previous.get(video.setId);if(!blob&&old?.drive?.hash===video.drive.hash)blob=old.blob;}
+        videos.push({setId:video.setId,...(blob?{blob,mimeType:blob.type}:{}),...(video.drive?{drive:video.drive}:{})});
+      }
+      const workouts=structuredClone(profile.workouts);
+      for(const w of workouts)for(const item of [w,...w.sets])if(item.imageRef){const blob=await window.DriveMedia.get(item.imageRef,false);item.image=blob?await window.DriveMedia.dataURL(blob):null;}
+      await new Promise((resolve,reject)=>{const tx=database.transaction(['workouts','videos','settings'],'readwrite');tx.objectStore('workouts').clear();tx.objectStore('videos').clear();for(const w of workouts)tx.objectStore('workouts').put(w);for(const v of videos)tx.objectStore('videos').put(v);tx.objectStore('settings').put({key:'initialized',value:true});tx.oncomplete=resolve;tx.onabort=tx.onerror=()=>reject(tx.error);});
+    }finally{database.close();}
   }
   profiles=data.profiles.map(({id,name})=>({id,name}));
   if(!profiles.some(p=>p.id===activeProfileId))activeProfileId=profiles[0].id;
@@ -2190,10 +2235,24 @@ async function applyFamily(data){
   GIST_FILENAME=activeProfileId==='default'?'als-exercise-timer-sync.json':`tabata-timer-${activeProfileId}.json`;
   renderProfileName();renderHomeWorkoutList();
 }
+async function downloadWorkoutMedia(){
+  if(state.timer.isRunning||switchingProfile||profileOperations)return;
+  const workout=getActiveWorkout();if(!workout)return;
+  const button=document.getElementById('workout-download');button.disabled=true;document.getElementById('app').inert=true;
+  const note=document.getElementById('media-notice');
+  try{await withProfileOperation(async()=>{
+    note.textContent='Downloading this workout for offline use…';
+    const copy=structuredClone(workout);
+    for(const item of [copy,...copy.sets])if(item.imageRef)item.image=await window.DriveMedia.dataURL(await window.DriveMedia.get(item.imageRef));
+    for(const set of copy.sets){if(!set.video)continue;const record=await dbGet('videos',set.id);if(record?.blob)continue;if(!record?.drive)throw new Error('A video is missing. Reattach it on the original device.');const blob=await window.DriveMedia.get(record.drive);await dbPut('videos',{...record,blob,mimeType:blob.type});}
+    await saveWorkout(copy);renderHomeWorkoutList();note.textContent='Workout media saved for offline use on this device.';
+  });}catch(error){note.textContent=error.message;}
+  finally{button.disabled=false;document.getElementById('app').inert=false;}
+}
 async function initFamily(){
   if(!window.FamilySync)return;
   const idle=()=>!state.timer.isRunning&&!switchingProfile&&!profileOperations&&!deletingProfile&&document.getElementById('screen-home').classList.contains('active')&&!document.querySelector('dialog[open]:not(#family-dialog)');
-  await window.FamilySync.init({snapshot:familySnapshot,apply:applyFamily,validate:validateFamily,idle,
+  await window.FamilySync.init({snapshot:familySnapshot,apply:applyFamily,validate:validateFamily,externalize:externalizeFamily,idle,
     async lock(action){
       if(!idle())throw new Error('Return to Workouts to sync your family.');
       const app=document.getElementById('app');app.inert=true;
@@ -2216,6 +2275,7 @@ async function init() {
   document.documentElement.setAttribute('data-theme', state.settings.theme);
   renderHomeWorkoutList();
   bindEvents();
+  window.DriveMedia?.init().catch(error=>{document.getElementById('drive-status').textContent=error.message;});
   await initFamily();
   routesReady = true;
   if (requestedHash) await openWorkoutRoute(requestedHash); else updateWorkoutUrl();

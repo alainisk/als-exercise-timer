@@ -17,7 +17,7 @@ function app() {
     return elements.get(id);
   };
   const context = vm.createContext({
-    crypto:{randomUUID:()=> uuid++ === 0 ? 'new-empty-profile' : 'test-id-' + uuid}, localStorage:{setItem(){}}, URL: {revokeObjectURL(){}}, structuredClone, Set, Date: class extends Date {static now(){return now;}},
+    crypto:{randomUUID:()=> uuid++ === 0 ? 'new-empty-profile' : 'test-id-' + uuid}, localStorage:{setItem(){}}, URL: {revokeObjectURL(){}}, structuredClone, Set, queueMicrotask, Date: class extends Date {static now(){return now;}},
     setInterval: () => 1, clearInterval(){},
     window: {scrollTo(){},speechSynthesis:{cancel(){}}},
     document: {getElementById:element,querySelector:element,querySelectorAll:()=>[]}
@@ -27,7 +27,8 @@ function app() {
     saveSettings = () => Promise.resolve();
     state.workouts = [structuredClone(DEFAULT_WORKOUT)];
     state.activeWorkoutId = DEFAULT_WORKOUT.id;
-    globalThis.testApp = {state, DEFAULT_WORKOUT, buildPhaseSequence, calcWorkoutTotalTime, pauseTimer, startPhase, skipToNext, timerTick, portableSettings, validateWorkoutData, commitEditedWorkout, discardEditorMedia, loadData, profileDatabase, deleteWorkout, deleteProfile, cloneForTransfer, transferWorkout, workoutHash, parseWorkoutHash, loadProfiles, mergeWorkouts,
+    globalThis.testApp = {state, DEFAULT_WORKOUT, buildPhaseSequence, calcWorkoutTotalTime, pauseTimer, startPhase, skipToNext, timerTick, portableSettings, validateWorkoutData, commitEditedWorkout, discardEditorMedia, loadData, profileDatabase, deleteWorkout, deleteProfile, cloneForTransfer, transferWorkout, workoutHash, parseWorkoutHash, loadProfiles, mergeWorkouts, familySnapshot,
+      familyFixture(items,read,media) {profiles=items; familyRead=read; window.DriveMedia=media; familyDatabase=async()=>({close(){},transaction(){const tx={objectStore(){return {put(){}};}};queueMicrotask(()=>tx.oncomplete());return tx;}});},
       registry(raw) {localStorage.getItem=()=>raw;},
       transferFixture(write,read,remove) {profiles=[{id:"default"},{id:"son"}]; activeProfileId="default"; writeTransferredWorkout=write; dbGet=read; deleteWorkout=remove;},
       profileFixture(items,active,clear) { profiles=items; activeProfileId=active; clearProfileData=clear; switchProfile=async id=>{activeProfileId=id;}; },
@@ -373,4 +374,24 @@ test('Import commits workouts and preferences together and selects a workout in 
   assert.deepEqual(stores,['workouts','settings']);
   assert.equal(a.state.activeWorkoutId,a.DEFAULT_WORKOUT.id);
   assert.notEqual(a.state.settings.syncToken,'must-not-import');
+});
+
+
+test('A family with over 100 MB of videos serializes only Drive references', async () => {
+  const a=app(),w=structuredClone(a.DEFAULT_WORKOUT);let uploaded=0;
+  w.sets.slice(0,3).forEach(s=>s.video='blob:'+s.id);
+  const records=w.sets.slice(0,3).map(s=>({setId:s.id,blob:{size:45*1024*1024,type:'video/mp4'}}));
+  a.familyFixture([{id:'parent',name:'Parent'}],async(_db,store)=>store==='workouts'?[w]:records,{upload:async blob=>{uploaded+=blob.size;return {provider:'drive',id:'file_'+uploaded,hash:'a'.repeat(64),size:blob.size,mimeType:blob.type};},validRef:ref=>ref?.provider==='drive'});
+  const data=await a.familySnapshot();
+  assert.equal(uploaded,135*1024*1024);
+  assert.ok(JSON.stringify(data).length<10000);
+  assert.equal(data.profiles[0].videos.length,3);
+  assert.equal(data.profiles[0].videos[0].data,undefined);
+});
+
+test('Metadata can sync without downloading remote-only videos', async () => {
+  const a=app(),w=structuredClone(a.DEFAULT_WORKOUT),ref={provider:'drive',id:'remote_file',hash:'a'.repeat(64),size:100,mimeType:'video/mp4'};
+  w.sets[0].video='blob:'+w.sets[0].id;
+  a.familyFixture([{id:'parent',name:'Parent'}],async(_db,store)=>store==='workouts'?[w]:[{setId:w.sets[0].id,drive:ref}],{upload:async()=>{throw Error('should not upload');},validRef:ref=>ref?.provider==='drive'});
+  const data=await a.familySnapshot();assert.equal(data.profiles[0].videos[0].drive.id,'remote_file');
 });

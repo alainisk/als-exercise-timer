@@ -228,3 +228,9 @@ svg {flex-shrink:0;}
   .header-tools { width: 100%; justify-content: space-between; gap: 8px; }
   #family-button { font-size: 12px; padding: 10px; }
 }
+.drive-controls { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line, #343830); }
+.drive-controls h3 { font-size: 16px; margin: 0 0 10px; }
+.drive-controls a:not([hidden]) { display: inline-block; color: #cfe97d; margin-top: 12px; }
+#drive-status { overflow-wrap: anywhere; }
+.workout-tools { flex-wrap: wrap; }
+.workout-tools button { flex: 1 1 145px; }
