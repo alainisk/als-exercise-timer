@@ -7,12 +7,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Tabata Timer">
   <meta name="theme-color" content="#151715">
+  <meta name="referrer" content="no-referrer">
   <title>Tabata Timer</title>
   <link rel="icon" type="image/png" sizes="512x512" href="favicon.png?v=20260913-2">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="redesign.css?v=20260913-5">
+  <link rel="stylesheet" href="redesign.css?v=20260913-6">
 </head>
 <body>
   <div id="app">
@@ -20,7 +21,7 @@
     <header class="app-header">
       <div class="header-inner">
         <button class="brand" id="brand-home" aria-label="Tabata Timer home"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="16" cy="18" r="11"/><path d="M16 7V3m-4 0h8m-4 9v7m8-11 2-2"/></svg><span>Tabata Timer</span></button>
-        <div class="header-tools"><button id="profile-button" class="subtle-btn" aria-label="Switch profile"><span id="profile-current">My profile</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg></button><nav aria-label="Main navigation"><button id="nav-workouts" class="nav-link selected" aria-current="page">Workouts</button><button id="btn-settings" class="nav-link">Settings</button></nav></div>
+        <div class="header-tools"><button id="family-button" class="subtle-btn">Family link</button><button id="profile-button" class="subtle-btn" aria-label="Switch profile"><span id="profile-current">My profile</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg></button><nav aria-label="Main navigation"><button id="nav-workouts" class="nav-link selected" aria-current="page">Workouts</button><button id="btn-settings" class="nav-link">Settings</button></nav></div>
       </div>
     </header>
     <main id="screen-home" class="screen active">
@@ -30,7 +31,7 @@
           <div class="section-heading"><h2>Your workouts</h2><span id="workout-count">1</span></div>
           <div id="workout-list" class="workout-list"></div>
           <button id="btn-add-workout-home" class="btn-add-workout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg>New workout</button>
-          <p class="library-note">Built around your routine.</p>
+          <p id="family-badge" class="library-note" role="status">Saved on this device</p>
         </aside>
         <section id="empty-workouts" class="empty-workouts hidden"><h1>Your next workout starts here.</h1><p>No workouts in this profile yet. Add one to get started.</p><button id="empty-add-workout" class="start-cta">Create a workout</button></section>
         <section class="workout-preview" aria-labelledby="preview-name">
@@ -417,14 +418,24 @@
   </div>
   <dialog id="profile-dialog" class="app-dialog" aria-labelledby="profile-title">
     <div class="dialog-heading"><h2 id="profile-title">Choose your profile</h2><button id="profile-close" class="subtle-btn" aria-label="Close profiles">Close</button></div>
-    <p>Each person has their own workouts on this device.</p>
+    <p>Each person has their own workouts. Connect a Family link to sync across devices.</p>
     <div id="profile-list" class="profile-list"></div>
     <form id="profile-form"><label for="profile-name">Add a profile</label><div class="profile-form-row"><input id="profile-name" class="editor-input" placeholder="Name" maxlength="40" required autocomplete="off"><button class="btn-primary" type="submit">Add profile</button></div><p id="profile-error" role="alert"></p></form>
   </dialog>
   <dialog id="profile-delete-dialog" class="app-dialog" aria-labelledby="profile-delete-title"><h2 id="profile-delete-title">Delete profile?</h2><p id="profile-delete-message"></p><div class="dialog-actions"><button id="profile-delete-cancel" class="btn-secondary">Keep profile</button><button id="profile-delete-confirm" class="btn-danger">Delete profile</button></div></dialog>
   <dialog id="transfer-dialog" class="app-dialog" aria-labelledby="transfer-title"><h2 id="transfer-title">Copy workout</h2><p id="transfer-description"></p><label for="transfer-destination">Destination profile</label><select id="transfer-destination" class="editor-input"></select><p id="transfer-error" role="alert"></p><div class="dialog-actions"><button id="transfer-cancel" class="btn-secondary">Cancel</button><button id="transfer-confirm" class="btn-primary">Copy workout</button></div></dialog>
-  <dialog id="workout-link-dialog" class="app-dialog" aria-labelledby="workout-link-title"><h2 id="workout-link-title">Workout URL</h2><p>This link opens this workout in its profile on this browser/device. It does not upload or share the workout.</p><label for="workout-url">Direct link</label><input id="workout-url" class="editor-input" readonly><p id="link-status" role="status"></p><div class="dialog-actions"><button id="link-close" class="btn-secondary">Close</button><button id="link-copy" class="btn-primary">Copy link</button></div></dialog>
+  <dialog id="workout-link-dialog" class="app-dialog" aria-labelledby="workout-link-title"><h2 id="workout-link-title">Workout URL</h2><p id="workout-link-description"></p><label for="workout-url">Direct link</label><input id="workout-url" class="editor-input" readonly><p id="link-status" role="status"></p><div class="dialog-actions"><button id="link-close" class="btn-secondary">Close</button><button id="link-copy" class="btn-primary">Copy link</button></div></dialog>
   <dialog id="delete-dialog" class="app-dialog" aria-labelledby="delete-title"><h2 id="delete-title">Delete workout?</h2><p id="delete-message"></p><div class="dialog-actions"><button id="delete-cancel" class="btn-secondary">Keep workout</button><button id="delete-confirm" class="btn-danger">Delete workout</button></div></dialog>
-  <script src="app.js?v=20260913-5"></script>
+  <dialog id="family-dialog" class="app-dialog" aria-labelledby="family-title">
+    <h2 id="family-title">Your family, together</h2>
+    <p>Open one private link on your phone and desktop to share profiles, workouts, images and videos. Anyone with the link can view and change the family library.</p>
+    <button id="family-create" class="btn-primary">Create family link</button>
+    <div id="family-connected" hidden><label for="family-link">Private family link</label><input id="family-link" class="editor-input" readonly><div class="dialog-actions"><button id="family-sync-now" class="btn-secondary">Sync now</button><button id="family-local" class="btn-secondary">Use device library</button><button id="family-copy" class="btn-primary">Copy family link</button></div></div>
+    <p id="family-status" role="status"></p>
+    <details><summary>Already have a family link?</summary><label for="family-join-url">Paste your family link</label><input id="family-join-url" type="url" class="editor-input" placeholder="https://…"><p>Your existing device library stays saved separately.</p><button id="family-join" class="btn-secondary">Open family</button></details>
+    <div class="dialog-actions"><button id="family-close" class="btn-secondary">Close</button></div>
+  </dialog>
+  <script src="family-sync.js?v=20260913-6"></script>
+  <script src="app.js?v=20260913-6"></script>
 </body>
 </html>

@@ -216,3 +216,15 @@ svg {flex-shrink:0;}
 .profile-row{display:flex;gap:10px;align-items:stretch;}.profile-row .profile-option{flex:1;min-width:0;}.profile-delete-button{flex-shrink:0;border:1px solid var(--border);background:transparent;color:#f1a49a;border-radius:10px;padding:0 14px;min-height:44px;font-size:13px;cursor:pointer;}[data-theme="light"] .profile-delete-button{color:#a12a20;}
 
 .workout-tools{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}.workout-tools button{flex:1;white-space:nowrap;}.workout-notice:empty{display:none;}.workout-notice{margin:0 0 20px;color:var(--text-secondary);line-height:1.5;}#transfer-destination{margin-top:10px;}#transfer-error{color:#f1a49a;}#workout-url{margin-top:10px;font-size:13px;}
+
+#family-dialog p { line-height: 1.5; }
+#family-dialog details { margin-top: 20px; }
+#family-dialog summary { cursor: pointer; margin-bottom: 14px; }
+#family-dialog label { display: block; margin: 12px 0 8px; }
+#family-status { overflow-wrap: anywhere; }
+#family-badge { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .header-inner { flex-wrap: wrap; gap: 12px; }
+  .header-tools { width: 100%; justify-content: space-between; gap: 8px; }
+  #family-button { font-size: 12px; padding: 10px; }
+}

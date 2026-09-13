@@ -175,7 +175,8 @@ function dbDelete(store, key) {
 }
 
 const DEFAULT_SETTINGS = structuredClone(state.settings);
-const PROFILE_STORAGE_KEY = 'tabata-timer-profiles-v1';
+const familyNamespace = window.FamilySync?.token ? '-family-' + window.FamilySync.token.slice(0,16) : '';
+const PROFILE_STORAGE_KEY = 'tabata-timer-profiles-v1' + familyNamespace;
 let profiles = [];
 let activeProfileId = 'default';
 let switchingProfile = false;
@@ -204,7 +205,7 @@ function loadProfiles() {
 function persistProfiles() {
   localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({profiles, activeId:activeProfileId}));
 }
-function profileDatabase(id) { return id === 'default' ? DB_NAME : `${DB_NAME}-profile-${id}`; }
+function profileDatabase(id) { return (id === 'default' ? DB_NAME : `${DB_NAME}-profile-${id}`) + familyNamespace; }
 async function loadData(seedDefault = true) {
   const workouts = await dbGetAll('workouts');
   const settingsRows = await dbGetAll('settings');
@@ -236,7 +237,7 @@ async function switchProfile(id) {
     for (const key of Object.keys(videoBlobURLs)) { URL.revokeObjectURL(videoBlobURLs[key]); delete videoBlobURLs[key]; }
     db.close();
     await openDB(profileDatabase(id));
-    await loadData(id === 'default');
+    await loadData(id === 'default' && !familyNamespace);
     activeProfileId = id;
     document.getElementById('workout-notice').textContent = '';
     persistProfiles();
@@ -286,7 +287,7 @@ let profilePendingDeletion = null;
 let deletingProfile = false;
 function requestProfileDeletion(profile) {
   profilePendingDeletion = profile.id;
-  document.getElementById('profile-delete-message').textContent = `Delete “${profile.name}” and all of its workouts, videos and settings from this device? This cannot be undone. Cloud backups are not deleted.`;
+  document.getElementById('profile-delete-message').textContent = `Delete “${profile.name}” and all of its workouts, videos and settings ${familyNamespace ? 'from your shared family' : 'from this device'}? This cannot be undone.`;
   document.getElementById('profile-delete-dialog').showModal();
 }
 function clearProfileData(id) {
@@ -333,6 +334,7 @@ async function deleteProfile(id) {
       try { await clearProfileData(id); }
       catch (error) { localStorage.setItem(PROFILE_STORAGE_KEY,JSON.stringify({profiles:previous,activeId:activeProfileId})); throw error; }
       profiles = remaining;
+      window.FamilySync?.mark();
     });
   } finally { deletingProfile = false; }
 }
@@ -345,6 +347,7 @@ async function addProfile(name) {
   profiles.push(profile);
   try { persistProfiles(); } catch (error) { profiles.pop(); throw error; }
   await switchProfile(profile.id);
+  window.FamilySync?.mark();
 }
 
 async function saveSettings() {
@@ -375,6 +378,7 @@ async function deleteWorkout(id) {
     if (videoBlobURLs[set.id]) { URL.revokeObjectURL(videoBlobURLs[set.id]); delete videoBlobURLs[set.id]; }
   }
   state.workouts = state.workouts.filter(w => w.id !== id);
+  window.FamilySync?.mark();
   if (state.activeWorkoutId === id) {
     state.activeWorkoutId = state.workouts[0]?.id || null;
     await saveSettings();
@@ -964,10 +968,10 @@ function updatePauseButton() {
 let routesReady = false;
 let applyingRoute = false;
 function workoutHash(profileId, workoutId) {
-  return `#/workout/${encodeURIComponent(profileId)}/${encodeURIComponent(workoutId)}`;
+  return `#/workout/${encodeURIComponent(profileId)}/${encodeURIComponent(workoutId)}` + (window.FamilySync?.suffix() || '');
 }
 function parseWorkoutHash(hash) {
-  const match = /^#\/workout\/([^/]+)\/([^/]+)$/.exec(hash);
+  const match = /^#\/workout\/([^/]+)\/([^/]+)$/.exec(hash.split('?')[0]);
   if (!match) return null;
   try { return {profileId:decodeURIComponent(match[1]),workoutId:decodeURIComponent(match[2])}; }
   catch (error) { return null; }
@@ -975,14 +979,14 @@ function parseWorkoutHash(hash) {
 function updateWorkoutUrl() {
   if (!routesReady || applyingRoute) return;
   const workout = getActiveWorkout();
-  const hash = workout ? workoutHash(activeProfileId, workout.id) : '';
+  const hash = workout ? workoutHash(activeProfileId, workout.id) : '#/' + (window.FamilySync?.suffix() || '');
   history.replaceState(null,'',location.pathname + location.search + hash);
 }
 async function openWorkoutRoute(hash = location.hash) {
   if (state.timer.isRunning || switchingProfile || profileOperations) { updateWorkoutUrl(); return; }
   const route = parseWorkoutHash(hash);
   if (!route) {
-    if (hash) document.getElementById('workout-notice').textContent = 'This workout URL is not valid.';
+    if (hash && hash !== '#/' && hash !== '#' && !hash.startsWith('#/?family=')) document.getElementById('workout-notice').textContent = 'This workout URL is not valid.';
     updateWorkoutUrl(); return;
   }
   applyingRoute = true;
@@ -1053,6 +1057,7 @@ async function transferWorkout(workoutId, destinationId, mode) {
       try { await deleteWorkout(source.id); }
       catch (error) { throw new Error('Copied successfully, but the original could not be removed. Both copies have been kept.'); }
     }
+    window.FamilySync?.mark();
     return copy;
   });
 }
@@ -1252,6 +1257,7 @@ async function commitEditedWorkoutInternal(workout) {
   }
   const idx = state.workouts.findIndex(w => w.id === workout.id);
   if (idx >= 0) state.workouts[idx] = workout; else state.workouts.push(workout);
+  window.FamilySync?.mark();
 }
 function openWorkoutEditor(workout) {
   discardEditorMedia();
@@ -1527,6 +1533,7 @@ async function mergeWorkouts(workouts, preferences) {
   state.workouts = [...merged.values()];
   state.settings = settings;
   state.activeWorkoutId = activeId;
+  window.FamilySync?.mark();
 }
 
 async function importWorkouts(file) { return withProfileOperation(() => importWorkoutsInternal(file)); }
@@ -1740,7 +1747,11 @@ function validateNumbers(container) {
 }
 
 function bindEvents() {
-  window.addEventListener('hashchange', () => openWorkoutRoute());
+  window.addEventListener('hashchange', () => {
+    const key = new URLSearchParams(location.hash.split('?')[1] || '').get('family');
+    if (key && key !== window.FamilySync?.token && /^[a-f0-9]{64}$/.test(key)) { location.reload(); return; }
+    openWorkoutRoute();
+  });
   document.getElementById('workout-copy').addEventListener('click', () => showTransfer('copy'));
   document.getElementById('workout-move').addEventListener('click', () => showTransfer('move'));
   document.getElementById('transfer-cancel').addEventListener('click', () => document.getElementById('transfer-dialog').close());
@@ -1762,6 +1773,7 @@ function bindEvents() {
   });
   document.getElementById('workout-link').addEventListener('click', () => {
     const workout = getActiveWorkout(); if (!workout) return;
+    document.getElementById('workout-link-description').textContent = familyNamespace ? 'This private link opens the workout on your other devices. Anyone with the link can access your family workouts.' : 'This workout is saved on this device. Create a Family link to open it on other devices.';
     document.getElementById('workout-url').value = location.origin + location.pathname + location.search + workoutHash(activeProfileId,workout.id);
     document.getElementById('link-status').textContent = '';
     document.getElementById('workout-link-dialog').showModal();
@@ -2074,7 +2086,7 @@ function bindEvents() {
 // ─── PWA Registration ───────────────────────────────────────
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=20260913-5').catch(() => {});
+    navigator.serviceWorker.register('./sw.js?v=20260913-6').catch(() => {});
   }
 }
 
@@ -2130,18 +2142,81 @@ function generateIcons() {
   });
 }
 
+// Read each profile through a separate connection; never change the active DB
+// while gathering a family snapshot.
+async function familyDatabase(id) {
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(profileDatabase(id),DB_VERSION);
+    req.onupgradeneeded=()=>{for(const [name,keyPath] of [['workouts','id'],['videos','setId'],['settings','key']])if(!req.result.objectStoreNames.contains(name))req.result.createObjectStore(name,{keyPath});};
+    req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+  });
+}
+function familyRead(database,store){return new Promise((resolve,reject)=>{const req=database.transaction(store).objectStore(store).getAll();req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
+async function familySnapshot(){
+  const result={version:1,profiles:[]};
+  for(const profile of profiles){
+    const database=await familyDatabase(profile.id);
+    try {
+      const [workouts,stored]=await Promise.all([familyRead(database,'workouts'),familyRead(database,'videos')]);
+      const used=new Set(workouts.flatMap(w=>w.sets.filter(s=>s.video).map(s=>s.id)));
+      const videos=[];
+      for(const record of stored){if(!used.has(record.setId))continue;const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error);reader.readAsDataURL(/^video\//.test(record.blob.type) ? record.blob : new Blob([record.blob],{type:'video/mp4'}));});videos.push({setId:record.setId,data});}
+      result.profiles.push({...profile,workouts,videos});
+    }finally{database.close();}
+  }
+  return result;
+}
+function validateFamily(data){
+  if(data?.version!==1||!Array.isArray(data.profiles)||!data.profiles.length||data.profiles.length>100)throw new Error('Invalid family profiles.');
+  const ids=new Set();
+  for(const profile of data.profiles){
+    if(!profile||typeof profile.id!=='string'||!profile.id||ids.has(profile.id)||typeof profile.name!=='string'||!profile.name.trim())throw new Error('Invalid family profile.');
+    ids.add(profile.id);validateWorkoutData(profile.workouts);
+    if(!Array.isArray(profile.videos)||profile.videos.some(v=>typeof v.setId!=='string'||typeof v.data!=='string'||!/^data:video\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(v.data)))throw new Error('Invalid family video.');
+  }
+}
+async function applyFamily(data){
+  validateFamily(data);
+  for(const profile of data.profiles){
+    const videos=profile.videos.map(video=>{const [header,base64]=video.data.split(',');const raw=atob(base64);const bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));const mimeType=header.slice(5,header.indexOf(';'));return {setId:video.setId,mimeType,blob:new Blob([bytes],{type:mimeType})};});
+    const database=await familyDatabase(profile.id);
+    try{await new Promise((resolve,reject)=>{const tx=database.transaction(['workouts','videos','settings'],'readwrite');tx.objectStore('workouts').clear();tx.objectStore('videos').clear();for(const w of profile.workouts)tx.objectStore('workouts').put(w);for(const v of videos)tx.objectStore('videos').put(v);tx.objectStore('settings').put({key:'initialized',value:true});tx.oncomplete=resolve;tx.onabort=tx.onerror=()=>reject(tx.error);});}finally{database.close();}
+  }
+  profiles=data.profiles.map(({id,name})=>({id,name}));
+  if(!profiles.some(p=>p.id===activeProfileId))activeProfileId=profiles[0].id;
+  persistProfiles();
+  for(const key of Object.keys(videoBlobURLs)){URL.revokeObjectURL(videoBlobURLs[key]);delete videoBlobURLs[key];}
+  db.close();await openDB(profileDatabase(activeProfileId));await loadData(false);
+  GIST_FILENAME=activeProfileId==='default'?'als-exercise-timer-sync.json':`tabata-timer-${activeProfileId}.json`;
+  renderProfileName();renderHomeWorkoutList();
+}
+async function initFamily(){
+  if(!window.FamilySync)return;
+  const idle=()=>!state.timer.isRunning&&!switchingProfile&&!profileOperations&&!deletingProfile&&document.getElementById('screen-home').classList.contains('active')&&!document.querySelector('dialog[open]:not(#family-dialog)');
+  await window.FamilySync.init({snapshot:familySnapshot,apply:applyFamily,validate:validateFamily,idle,
+    async lock(action){
+      if(!idle())throw new Error('Return to Workouts to sync your family.');
+      const app=document.getElementById('app');app.inert=true;
+      const controls=[...document.querySelectorAll('#family-dialog button')];for(const button of controls)button.disabled=true;
+      try{return await withProfileOperation(action);}
+      finally{app.inert=false;for(const button of controls)button.disabled=false;}
+    }
+  });
+}
+
 // ─── Init ───────────────────────────────────────────────────
 async function init() {
   const requestedHash = location.hash;
   loadProfiles();
   await openDB(profileDatabase(activeProfileId));
-  await loadData(activeProfileId === 'default');
+  await loadData(activeProfileId === 'default' && !familyNamespace);
   GIST_FILENAME = activeProfileId === 'default' ? 'als-exercise-timer-sync.json' : `tabata-timer-${activeProfileId}.json`;
   renderProfileName();
 
   document.documentElement.setAttribute('data-theme', state.settings.theme);
   renderHomeWorkoutList();
   bindEvents();
+  await initFamily();
   routesReady = true;
   if (requestedHash) await openWorkoutRoute(requestedHash); else updateWorkoutUrl();
   registerSW();

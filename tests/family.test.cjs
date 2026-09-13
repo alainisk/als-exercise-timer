@@ -1,0 +1,17 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const vm=require('node:vm');
+const fs=require('node:fs');
+const {webcrypto}=require('node:crypto');
+const context=vm.createContext({crypto:webcrypto,window:{},location:{hash:''},localStorage:{getItem:()=>null},URLSearchParams,TextEncoder,TextDecoder,Uint8Array,Set,Map,structuredClone,btoa,atob});
+vm.runInContext(fs.readFileSync(require.resolve('../family-sync.js'),'utf8'),context);
+const {merge,seal,unseal,validToken}=context.window.FamilySync.testing;
+const workout=(id,name=id)=>({id,name,sets:[{id:id+'-set',video:null}]});
+const family=(workouts)=>({version:1,profiles:[{id:'parent',name:'Parent',workouts,videos:[]}]});
+test('Only full-strength family link keys are accepted',()=>{assert.equal(validToken('a'.repeat(64)),true);assert.equal(validToken('guessme'),false);});
+test('Private snapshot encrypts media and only decrypts with the family key',async()=>{const data=family([workout('one')]);data.profiles[0].videos=[{setId:'one-set',data:'data:video/mp4;base64,YWJj'}];const key='a'.repeat(64);const sealed=await seal(data,key);assert.equal(JSON.stringify(sealed).includes('Parent'),false);assert.deepEqual(JSON.parse(JSON.stringify(await unseal(sealed,key))),data);await assert.rejects(unseal(sealed,'b'.repeat(64)));});
+test('Concurrent edits to different workouts are combined',()=>{const base=family([workout('a'),workout('b')]),local=structuredClone(base),remote=structuredClone(base);local.profiles[0].workouts[0].name='local';remote.profiles[0].workouts[1].name='remote';assert.deepEqual(Array.from(merge(base,local,remote).profiles[0].workouts,w=>w.name),['local','remote']);});
+test('Deleting a workout is propagated instead of resurrecting it',()=>{const base=family([workout('a')]);assert.equal(merge(base,family([]),base).profiles[0].workouts.length,0);assert.equal(merge(base,base,family([])).profiles[0].workouts.length,0);});
+test('Conflicting workout edits keep both versions with independent IDs',()=>{const base=family([workout('a')]),local=family([workout('a','Local')]),remote=family([workout('a','Remote')]);const out=merge(base,local,remote).profiles[0].workouts;assert.equal(out.length,2);assert.notEqual(out[0].id,out[1].id);assert.notEqual(out[0].sets[0].id,out[1].sets[0].id);assert.match(out[1].name,/conflict copy/);});
+test('Concurrent profile deletion preserves a new workout rather than losing it',()=>{const base=family([workout('a')]),local=family([workout('a'),workout('new')]),remote={version:1,profiles:[]};assert.equal(merge(base,local,remote).profiles[0].workouts.length,2);});
+test('Changed video content is a conflict even when workout metadata matches',()=>{const base=family([workout('a')]);base.profiles[0].workouts[0].sets[0].video='blob:a-set';base.profiles[0].videos=[{setId:'a-set',data:'old'}];const l=structuredClone(base),r=structuredClone(base);l.profiles[0].videos[0].data='local';r.profiles[0].videos[0].data='remote';const out=merge(base,l,r).profiles[0];assert.equal(out.workouts.length,2);assert.equal(out.videos.length,2);assert.notEqual(out.videos[0].setId,out.videos[1].setId);});
