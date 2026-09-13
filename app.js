@@ -232,6 +232,7 @@ async function switchProfile(id) {
     await openDB(profileDatabase(id));
     await loadData(id === 'default');
     activeProfileId = id;
+    document.getElementById('workout-notice').textContent = '';
     persistProfiles();
     GIST_FILENAME = id === 'default' ? 'als-exercise-timer-sync.json' : `tabata-timer-${id}.json`;
     document.documentElement.setAttribute('data-theme',state.settings.theme);
@@ -953,6 +954,124 @@ function updatePauseButton() {
   document.getElementById('play-icon').classList.toggle('hidden', !state.timer.isPaused);
 }
 
+// ─── Workout links and cross-profile transfers ───────────────
+let routesReady = false;
+let applyingRoute = false;
+function workoutHash(profileId, workoutId) {
+  return `#/workout/${encodeURIComponent(profileId)}/${encodeURIComponent(workoutId)}`;
+}
+function parseWorkoutHash(hash) {
+  const match = /^#\/workout\/([^/]+)\/([^/]+)$/.exec(hash);
+  if (!match) return null;
+  try { return {profileId:decodeURIComponent(match[1]),workoutId:decodeURIComponent(match[2])}; }
+  catch (error) { return null; }
+}
+function updateWorkoutUrl() {
+  if (!routesReady || applyingRoute) return;
+  const workout = getActiveWorkout();
+  const hash = workout ? workoutHash(activeProfileId, workout.id) : '';
+  history.replaceState(null,'',location.pathname + location.search + hash);
+}
+async function openWorkoutRoute(hash = location.hash) {
+  if (state.timer.isRunning || switchingProfile || profileOperations) { updateWorkoutUrl(); return; }
+  const route = parseWorkoutHash(hash);
+  if (!route) {
+    if (hash) document.getElementById('workout-notice').textContent = 'This workout URL is not valid.';
+    updateWorkoutUrl(); return;
+  }
+  applyingRoute = true;
+  try {
+    if (!profiles.some(p => p.id === route.profileId)) throw new Error('This profile is not saved on this browser/device.');
+    if (route.profileId !== activeProfileId) await switchProfile(route.profileId);
+    if (activeProfileId !== route.profileId) throw new Error('Could not open the linked profile.');
+    if (!state.workouts.some(w => w.id === route.workoutId)) throw new Error('This workout is not available in this profile. It may have been moved or deleted.');
+    state.activeWorkoutId = route.workoutId;
+    await saveSettings();
+    document.getElementById('workout-notice').textContent = '';
+    showScreen('screen-home');
+    renderHomeWorkoutList();
+  } catch (error) {
+    showScreen('screen-home');
+    document.getElementById('workout-notice').textContent = error.message;
+  } finally { applyingRoute = false; updateWorkoutUrl(); }
+}
+function cloneForTransfer(workout) {
+  const copy = structuredClone(workout);
+  copy.id = crypto.randomUUID();
+  copy.sets = copy.sets.map(set => {
+    const id = crypto.randomUUID();
+    return {...set,id,video:set.video ? 'blob:' + id : null};
+  });
+  return copy;
+}
+function writeTransferredWorkout(profileId, workout, videos) {
+  return new Promise((resolve,reject) => {
+    const request = indexedDB.open(profileDatabase(profileId), DB_VERSION);
+    request.onupgradeneeded = () => {
+      for (const [name,keyPath] of [['workouts','id'],['videos','setId'],['settings','key']]) {
+        if (!request.result.objectStoreNames.contains(name)) request.result.createObjectStore(name,{keyPath});
+      }
+    };
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const tx = database.transaction(['workouts','videos','settings'],'readwrite');
+      // add() prevents overwriting a destination workout, even on an ID collision.
+      tx.objectStore('workouts').add(workout);
+      for (const video of videos) tx.objectStore('videos').add(video);
+      tx.objectStore('settings').put({key:'initialized',value:true});
+      tx.oncomplete = () => {database.close();resolve();};
+      tx.onerror = tx.onabort = () => {database.close();reject(tx.error || new Error('Could not save to the destination profile.'));};
+    };
+  });
+}
+async function transferWorkout(workoutId, destinationId, mode) {
+  if (!['copy','move'].includes(mode)) throw new Error('Choose Copy or Move.');
+  if (state.timer.isRunning || switchingProfile || profileOperations) throw new Error('Finish the current operation first.');
+  if (destinationId === activeProfileId || !profiles.some(p => p.id === destinationId)) throw new Error('Choose another profile.');
+  const source = state.workouts.find(w => w.id === workoutId);
+  if (!source) throw new Error('Workout not found.');
+  return withProfileOperation(async () => {
+    const copy = cloneForTransfer(source);
+    const videos = [];
+    for (let i=0; i<source.sets.length; i++) {
+      if (!source.sets[i].video) continue;
+      const record = await dbGet('videos',source.sets[i].id);
+      if (!record?.blob) throw new Error('An exercise video is missing. Reattach or remove it before transferring.');
+      videos.push({...record,setId:copy.sets[i].id});
+    }
+    await writeTransferredWorkout(destinationId,copy,videos);
+    // Separate profile databases cannot share a transaction. Only remove the
+    // source after destination commit; on failure preserve both copies.
+    if (mode === 'move') {
+      try { await deleteWorkout(source.id); }
+      catch (error) { throw new Error('Copied successfully, but the original could not be removed. Both copies have been kept.'); }
+    }
+    return copy;
+  });
+}
+let transferMode = 'copy';
+let transferSourceId = null;
+let transferInProgress = false;
+function showTransfer(mode) {
+  const workout = getActiveWorkout();
+  if (!workout) return;
+  transferMode = mode;
+  transferSourceId = workout.id;
+  const verb = mode === 'move' ? 'Move' : 'Copy';
+  document.getElementById('transfer-title').textContent = `${verb} workout`;
+  document.getElementById('transfer-confirm').textContent = `${verb} workout`;
+  document.getElementById('transfer-description').textContent = `${verb} “${workout.name}”, including its exercise images and videos, to another profile.${mode === 'move' ? ' The original will be removed after the transfer succeeds.' : ' The original will stay in this profile.'}`;
+  const select = document.getElementById('transfer-destination');
+  select.replaceChildren();
+  for (const profile of profiles.filter(p => p.id !== activeProfileId)) {
+    const option = document.createElement('option'); option.value=profile.id; option.textContent=profile.name; select.appendChild(option);
+  }
+  document.getElementById('transfer-confirm').disabled = !select.options.length;
+  document.getElementById('transfer-error').textContent = select.options.length ? '' : 'Add another profile using the profile selector first.';
+  document.getElementById('transfer-dialog').showModal();
+}
+
 // ─── Home Screen (Workout List) ─────────────────────────────
 const editIcon = '<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
 function renderHomeWorkoutList() {
@@ -982,6 +1101,7 @@ function renderHomeWorkoutList() {
     list.appendChild(card);
   });
   renderWorkoutPreview();
+  updateWorkoutUrl();
 }
 
 let workoutPendingDeletion = null;
@@ -1622,6 +1742,38 @@ function validateNumbers(container) {
 }
 
 function bindEvents() {
+  window.addEventListener('hashchange', () => openWorkoutRoute());
+  document.getElementById('workout-copy').addEventListener('click', () => showTransfer('copy'));
+  document.getElementById('workout-move').addEventListener('click', () => showTransfer('move'));
+  document.getElementById('transfer-cancel').addEventListener('click', () => document.getElementById('transfer-dialog').close());
+  document.getElementById('transfer-dialog').addEventListener('cancel', event => {if (transferInProgress) event.preventDefault();});
+  document.getElementById('transfer-confirm').addEventListener('click', async () => {
+    if (transferInProgress) return;
+    transferInProgress = true;
+    const confirm = document.getElementById('transfer-confirm');
+    const cancel = document.getElementById('transfer-cancel');
+    confirm.disabled = cancel.disabled = true;
+    try {
+      const destination = document.getElementById('transfer-destination').value;
+      await transferWorkout(transferSourceId,destination,transferMode);
+      document.getElementById('transfer-dialog').close();
+      renderHomeWorkoutList();
+      document.getElementById('workout-notice').textContent = `${transferMode === 'move' ? 'Moved' : 'Copied'} to ${profiles.find(p => p.id === destination).name}.`;
+    } catch (error) {document.getElementById('transfer-error').textContent = error.message;}
+    finally {transferInProgress = false; confirm.disabled = cancel.disabled = false;}
+  });
+  document.getElementById('workout-link').addEventListener('click', () => {
+    const workout = getActiveWorkout(); if (!workout) return;
+    document.getElementById('workout-url').value = location.origin + location.pathname + location.search + workoutHash(activeProfileId,workout.id);
+    document.getElementById('link-status').textContent = '';
+    document.getElementById('workout-link-dialog').showModal();
+  });
+  document.getElementById('link-close').addEventListener('click', () => document.getElementById('workout-link-dialog').close());
+  document.getElementById('link-copy').addEventListener('click', async () => {
+    const input = document.getElementById('workout-url');
+    try {await navigator.clipboard.writeText(input.value); document.getElementById('link-status').textContent = 'Link copied.';}
+    catch (error) {input.focus(); input.select(); document.getElementById('link-status').textContent = 'Select and copy the link above.';}
+  });
   window.addEventListener('storage', event => {
     if (event.key !== PROFILE_STORAGE_KEY || !event.newValue) return;
     try {
@@ -1921,7 +2073,7 @@ function bindEvents() {
 // ─── PWA Registration ───────────────────────────────────────
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=20260913-3').catch(() => {});
+    navigator.serviceWorker.register('./sw.js?v=20260913-4').catch(() => {});
   }
 }
 
@@ -1979,6 +2131,7 @@ function generateIcons() {
 
 // ─── Init ───────────────────────────────────────────────────
 async function init() {
+  const requestedHash = location.hash;
   loadProfiles();
   await openDB(profileDatabase(activeProfileId));
   await loadData(activeProfileId === 'default');
@@ -1988,6 +2141,8 @@ async function init() {
   document.documentElement.setAttribute('data-theme', state.settings.theme);
   renderHomeWorkoutList();
   bindEvents();
+  routesReady = true;
+  if (requestedHash) await openWorkoutRoute(requestedHash); else updateWorkoutUrl();
   registerSW();
   generateIcons();
 

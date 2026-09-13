@@ -5,7 +5,7 @@ const vm = require('node:vm');
 
 // Execute the actual application logic with deterministic time and inert browser services.
 function app() {
-  let now = 100000;
+  let now = 100000, uuid = 0;
   const elements = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
@@ -17,7 +17,7 @@ function app() {
     return elements.get(id);
   };
   const context = vm.createContext({
-    crypto:{randomUUID:()=> 'new-empty-profile'}, localStorage:{setItem(){}}, URL: {revokeObjectURL(){}}, structuredClone, Set, Date: class extends Date {static now(){return now;}},
+    crypto:{randomUUID:()=> uuid++ === 0 ? 'new-empty-profile' : 'test-id-' + uuid}, localStorage:{setItem(){}}, URL: {revokeObjectURL(){}}, structuredClone, Set, Date: class extends Date {static now(){return now;}},
     setInterval: () => 1, clearInterval(){},
     window: {scrollTo(){},speechSynthesis:{cancel(){}}},
     document: {getElementById:element,querySelector:element,querySelectorAll:()=>[]}
@@ -27,7 +27,8 @@ function app() {
     saveSettings = () => Promise.resolve();
     state.workouts = [structuredClone(DEFAULT_WORKOUT)];
     state.activeWorkoutId = DEFAULT_WORKOUT.id;
-    globalThis.testApp = {state, DEFAULT_WORKOUT, buildPhaseSequence, calcWorkoutTotalTime, pauseTimer, startPhase, skipToNext, timerTick, portableSettings, validateWorkoutData, commitEditedWorkout, discardEditorMedia, loadData, profileDatabase, deleteWorkout, deleteProfile,
+    globalThis.testApp = {state, DEFAULT_WORKOUT, buildPhaseSequence, calcWorkoutTotalTime, pauseTimer, startPhase, skipToNext, timerTick, portableSettings, validateWorkoutData, commitEditedWorkout, discardEditorMedia, loadData, profileDatabase, deleteWorkout, deleteProfile, cloneForTransfer, transferWorkout, workoutHash, parseWorkoutHash,
+      transferFixture(write,read,remove) {profiles=[{id:"default"},{id:"son"}]; activeProfileId="default"; writeTransferredWorkout=write; dbGet=read; deleteWorkout=remove;},
       profileFixture(items,active,clear) { profiles=items; activeProfileId=active; clearProfileData=clear; switchProfile=async id=>{activeProfileId=id;}; },
       profileState() {return {profiles,activeProfileId};},
       storage(read,write) {dbGetAll=read; dbPut=write;},
@@ -277,4 +278,63 @@ test('Profile deletion is unavailable during an active workout', async () => {
   a.state.timer.isRunning=true;
   await a.deleteProfile('parent');
   assert.equal(cleared,false);
+});
+
+
+test('Transfer gives workouts and exercises independent IDs without changing the original', () => {
+  const a=app(), source=structuredClone(a.DEFAULT_WORKOUT);
+  source.sets[0].video='blob:original';
+  const copy=a.cloneForTransfer(source);
+  assert.notEqual(copy.id,source.id);
+  assert.equal(new Set(copy.sets.map(s=>s.id)).size,copy.sets.length);
+  assert.equal(copy.sets[0].video,'blob:'+copy.sets[0].id);
+  copy.sets[0].name='Changed';
+  assert.notEqual(source.sets[0].name,'Changed');
+});
+
+test('Copy preserves the source and remaps stored video records', async () => {
+  const a=app(); let saved,removed=false;
+  a.state.workouts[0].sets[0].video='blob:original';
+  a.transferFixture(async (id,w,v)=>{saved={id,w,v};},async()=>({setId:'old',blob:'video bytes'}),async()=>{removed=true;});
+  await a.transferWorkout('classic-tabata','son','copy');
+  assert.equal(saved.id,'son');
+  assert.equal(saved.v[0].setId,saved.w.sets[0].id);
+  assert.equal(saved.v[0].blob,'video bytes');
+  assert.equal(removed,false);
+});
+
+test('Move removes the original only after destination commit', async () => {
+  const a=app(), order=[];
+  a.transferFixture(async()=>{order.push('commit');},async()=>null,async()=>{order.push('remove');});
+  await a.transferWorkout('classic-tabata','son','move');
+  assert.deepEqual(order,['commit','remove']);
+});
+
+test('Destination failure keeps the original workout', async () => {
+  const a=app(); let removed=false;
+  a.transferFixture(async()=>{throw new Error('disk full');},async()=>null,async()=>{removed=true;});
+  await assert.rejects(a.transferWorkout('classic-tabata','son','move'),/disk full/);
+  assert.equal(removed,false);
+});
+
+test('Missing media aborts transfer before either library is changed', async () => {
+  const a=app(); let wrote=false;
+  a.state.workouts[0].sets[0].video='blob:missing';
+  a.transferFixture(async()=>{wrote=true;},async()=>null,async()=>{});
+  await assert.rejects(a.transferWorkout('classic-tabata','son','move'),/video is missing/);
+  assert.equal(wrote,false);
+});
+
+test('Source cleanup failure explains that both copies are retained', async () => {
+  const a=app();
+  a.transferFixture(async()=>{},async()=>null,async()=>{throw new Error('failed');});
+  await assert.rejects(a.transferWorkout('classic-tabata','son','move'),/Both copies have been kept/);
+});
+
+test('Workout URL safely encodes IDs and rejects malformed links', () => {
+  const a=app(), route=a.parseWorkoutHash(a.workoutHash('A/B','work out#1'));
+  assert.equal(route.profileId,'A/B');
+  assert.equal(route.workoutId,'work out#1');
+  assert.equal(a.parseWorkoutHash('#/workout/a/%ZZ'),null);
+  assert.equal(a.parseWorkoutHash('#/workout/a'),null);
 });

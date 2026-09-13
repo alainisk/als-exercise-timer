@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="redesign.css?v=20260913-3">
+  <link rel="stylesheet" href="redesign.css?v=20260913-4">
 </head>
 <body>
   <div id="app">
@@ -24,6 +24,7 @@
       </div>
     </header>
     <main id="screen-home" class="screen active">
+      <p id="workout-notice" class="workout-notice" role="status"></p>
       <div class="workout-layout">
         <aside class="library" aria-label="Workout library">
           <div class="section-heading"><h2>Your workouts</h2><span id="workout-count">1</span></div>
@@ -38,6 +39,7 @@
           <div class="duration-dial"><svg class="dial-track" viewBox="0 0 300 300" aria-hidden="true"><circle cx="150" cy="150" r="140" pathLength="100"/><circle class="dial-accent" cx="150" cy="150" r="140" pathLength="100"/></svg><strong id="preview-duration">04:07</strong><span>TOTAL DURATION</span></div>
           <dl class="preview-stats"><div><dt>Work</dt><dd id="preview-work">20s</dd></div><div><dt>Rest</dt><dd id="preview-rest">10s</dd></div><div><dt>Sets</dt><dd id="preview-sets">8</dd></div></dl>
           <button id="preview-start" class="start-cta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4a1 1 0 0 1 1.5-.8l12 8a1 1 0 0 1 0 1.6l-12 8A1 1 0 0 1 7 20Z"/></svg>Start workout</button>
+          <div class="workout-tools"><button id="workout-copy" class="subtle-btn">Copy to profile</button><button id="workout-move" class="subtle-btn">Move to profile</button><button id="workout-link" class="subtle-btn">Workout URL</button></div>
         </section>
       </div>
       <section class="sequence-panel" aria-labelledby="sequence-title"><div class="section-heading"><h2 id="sequence-title">Workout sequence</h2><span id="sequence-cycles">1 cycle</span></div><div id="sequence-strip" class="sequence-strip"></div></section>
@@ -420,7 +422,9 @@
     <form id="profile-form"><label for="profile-name">Add a profile</label><div class="profile-form-row"><input id="profile-name" class="editor-input" placeholder="Name" maxlength="40" required autocomplete="off"><button class="btn-primary" type="submit">Add profile</button></div><p id="profile-error" role="alert"></p></form>
   </dialog>
   <dialog id="profile-delete-dialog" class="app-dialog" aria-labelledby="profile-delete-title"><h2 id="profile-delete-title">Delete profile?</h2><p id="profile-delete-message"></p><div class="dialog-actions"><button id="profile-delete-cancel" class="btn-secondary">Keep profile</button><button id="profile-delete-confirm" class="btn-danger">Delete profile</button></div></dialog>
+  <dialog id="transfer-dialog" class="app-dialog" aria-labelledby="transfer-title"><h2 id="transfer-title">Copy workout</h2><p id="transfer-description"></p><label for="transfer-destination">Destination profile</label><select id="transfer-destination" class="editor-input"></select><p id="transfer-error" role="alert"></p><div class="dialog-actions"><button id="transfer-cancel" class="btn-secondary">Cancel</button><button id="transfer-confirm" class="btn-primary">Copy workout</button></div></dialog>
+  <dialog id="workout-link-dialog" class="app-dialog" aria-labelledby="workout-link-title"><h2 id="workout-link-title">Workout URL</h2><p>This link opens this workout in its profile on this browser/device. It does not upload or share the workout.</p><label for="workout-url">Direct link</label><input id="workout-url" class="editor-input" readonly><p id="link-status" role="status"></p><div class="dialog-actions"><button id="link-close" class="btn-secondary">Close</button><button id="link-copy" class="btn-primary">Copy link</button></div></dialog>
   <dialog id="delete-dialog" class="app-dialog" aria-labelledby="delete-title"><h2 id="delete-title">Delete workout?</h2><p id="delete-message"></p><div class="dialog-actions"><button id="delete-cancel" class="btn-secondary">Keep workout</button><button id="delete-confirm" class="btn-danger">Delete workout</button></div></dialog>
-  <script src="app.js?v=20260913-3"></script>
+  <script src="app.js?v=20260913-4"></script>
 </body>
 </html>
