@@ -12,10 +12,10 @@
   <link rel="icon" type="image/png" sizes="32x32" href="stopwatch-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="stopwatch-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="stopwatch-512.png">
-  <link rel="manifest" href="manifest.json?v=20260913-11">
+  <link rel="manifest" href="manifest.json?v=20260913-12">
   <link rel="apple-touch-icon" sizes="180x180" href="stopwatch-180.png">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="redesign.css?v=20260913-11">
+  <link rel="stylesheet" href="redesign.css?v=20260913-12">
 </head>
 <body>
   <div id="app">
@@ -91,8 +91,8 @@
         </button>
         <div class="timer-image-area">
           <img id="timer-exercise-image" alt="" class="timer-image hidden">
-          <iframe id="timer-video-embed" class="hidden" title="Exercise video" allow="fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><video id="timer-exercise-video" muted playsinline webkit-playsinline loop preload="auto" class="timer-image hidden"></video>
-          <p id="timer-online-note" class="input-hint" hidden>Online video · tap the player to play. <a id="timer-video-original" target="_blank" rel="noopener">Open video</a></p><div id="timer-image-placeholder" class="timer-image-placeholder">
+          <iframe id="timer-video-embed" class="hidden" title="Exercise video" allow="autoplay; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><video id="timer-exercise-video" muted playsinline webkit-playsinline loop preload="auto" class="timer-image hidden"></video>
+          <p id="timer-online-note" class="input-hint" hidden>Online video · plays automatically on a loop. <a id="timer-video-original" target="_blank" rel="noopener">Open video</a></p><div id="timer-image-placeholder" class="timer-image-placeholder">
             <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
           </div>
         </div>
@@ -404,7 +404,7 @@
           <div class="editor-row editor-row-stack">
             <label>Exercise Video (optional)</label>
             <div class="image-upload-area">
-              <iframe id="set-video-embed" class="set-video-preview hidden" title="Exercise video preview" allow="fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><video id="set-video-preview" class="set-video-preview hidden" muted playsinline webkit-playsinline loop preload="auto"></video>
+              <iframe id="set-video-embed" class="set-video-preview hidden" title="Exercise video preview" allow="autoplay; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe><video id="set-video-preview" class="set-video-preview hidden" autoplay muted playsinline webkit-playsinline loop preload="auto"></video>
               <button id="btn-set-video" class="btn-secondary">Upload video file</button>
               <button id="btn-set-video-clear" class="btn-danger btn-small hidden">Remove</button>
               <input type="file" id="set-video-input" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" class="hidden">
@@ -448,11 +448,11 @@
   </dialog>
   <dialog id="share-dialog" class="app-dialog" aria-labelledby="share-title"><h2 id="share-title">Share workout</h2><p id="share-workout-name"></p><p>People you add can view and run this workout, or save their own copy. Only you can edit the original and manage access.</p><form id="share-form"><label for="share-username">Add by username</label><input id="share-username" class="editor-input" required pattern="[a-zA-Z0-9_]{3,24}" placeholder="Their username" maxlength="24"><button class="btn-primary" type="submit">Add person</button></form><h3>People with access</h3><div id="share-recipients"></div><p id="share-status" role="status"></p><p class="input-hint">Removing someone stops future access. Copies and files they already saved remain theirs.</p><div class="dialog-actions"><button id="share-close" class="btn-secondary">Done</button></div></dialog>
   <dialog id="shared-dialog" class="app-dialog" aria-labelledby="shared-title"><h2 id="shared-title">Shared with me</h2><div id="shared-list"></div><p id="shared-status" role="status"></p><div class="dialog-actions"><button id="shared-refresh" class="btn-secondary">Refresh</button><button id="shared-close" class="btn-secondary">Close</button></div></dialog>
-  <script src="cloud-config.js?v=20260913-11"></script>
-  <script src="video-sources.js?v=20260913-11"></script>
-  <script src="sync-merge.js?v=20260913-11"></script>
-  <script src="account-sync.js?v=20260913-11"></script>
-  <script src="account-media.js?v=20260913-11"></script>
-  <script src="app.js?v=20260913-11"></script>
+  <script src="cloud-config.js?v=20260913-12"></script>
+  <script src="video-sources.js?v=20260913-12"></script>
+  <script src="sync-merge.js?v=20260913-12"></script>
+  <script src="account-sync.js?v=20260913-12"></script>
+  <script src="account-media.js?v=20260913-12"></script>
+  <script src="app.js?v=20260913-12"></script>
 </body>
 </html>
