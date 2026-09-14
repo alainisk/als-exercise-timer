@@ -1,21 +1,6 @@
 {
   "rules": {
     ".read": false,
-    ".write": false,
-    "families": {
-      "$capability": {
-        ".read": "$capability.matches(/^[a-f0-9]{64}$/)",
-        ".write": "$capability.matches(/^[a-f0-9]{64}$/) && newData.exists()",
-        ".validate": "newData.hasChildren(['version','revision','iv','chunks'])",
-        "version": { ".validate": "newData.val() === 1" },
-        "revision": { ".validate": "newData.isString() && newData.val().length === 36" },
-        "iv": { ".validate": "newData.isString() && newData.val().length === 16" },
-        "chunks": {
-          ".validate": "newData.hasChildren()",
-          "$chunk": { ".validate": "$chunk.matches(/^([0-9]|[1-9][0-9]|1[0-4][0-9])$/) && newData.isString() && newData.val().length <= 1000000" }
-        },
-        "$other": { ".validate": false }
-      }
-    }
+    ".write": false
   }
 }

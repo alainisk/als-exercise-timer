@@ -1,63 +1,56 @@
 # Tabata Timer
 
-A responsive, offline-capable interval timer. Open a workout, review its duration and sequence, and start directly from the library. Workouts, exercise media and settings use the existing IndexedDB database; the redesign does not migrate or erase saved data.
+A responsive interval timer with private user accounts, personal workout libraries, uploaded videos, YouTube/Vimeo links and sharing by username. Firebase Authentication handles passwords; Firebase Realtime Database stores library metadata and sharing permissions. Railway hosts the API/frontend and private file bucket.
 
-## Run locally
+## Accounts and sharing
 
-```sh
-python3 -m http.server 4173 --bind 127.0.0.1
-```
+- **Log in / Sign up** creates an account with a unique username, recovery email and password of at least 12 characters. Usernames are case-insensitive and use 3–24 letters, numbers or underscores. Log in with username and password; use **Forgot your password?** with your recovery email.
+- Profiles organize workouts within your account. Accounts have separate local databases and server libraries. The unsigned device library remains available separately.
+- **More options → Share workout** lists every recipient and adds/removes access by existing username. Share changes take effect immediately on the server. The recipient sees the workout in **Shared with me**, can run it and can save an independent editable copy. The original is view-only for recipients.
+- Removal stops subsequent authorized requests. A previously issued file URL lasts up to 60 seconds. Copies or files a person already saved cannot be recalled.
+- Owned workouts synchronize automatically while the home screen is idle. Offline edits stay on the device; reconnect or use **Sync now**. Concurrent changes merge; conflicting edits are preserved as separate copies. Shared workouts require an online access check when opening and starting.
+- Logging out first syncs, then removes the account's local library, cached media, sync baseline and session. It will keep you logged in if it cannot save your changes. Close other account tabs if local database removal is blocked.
 
-Open http://127.0.0.1:4173/. No dependencies or build step are required. The app must be served over localhost or HTTPS for its PWA features.
+## Videos
 
-## Test
+In an exercise editor, upload MP4, MOV or WebM (up to 512 MB), or paste a HTTPS YouTube/Vimeo link. Public YouTube watch, shortened, shorts, live and embed URLs are supported; Vimeo public and unlisted privacy hashes are preserved. Links survive edits, backups, copies and cross-device sync without uploading video bytes.
 
-With Node.js installed:
+Provider players have their own play controls and need internet/embedding permission. Pausing or leaving an interval unloads its player; resume may require tapping Play again. **Open video** opens the original source if embedding is unavailable. Linked videos are not included in offline downloads. File codec/browser support still applies to uploaded videos.
 
-```sh
-node --test tests/timer.test.cjs
-```
+## Existing device and family libraries
 
-Tests exercise the production timer logic with deterministic time, including delayed browser ticks and precise completion time. They also check backup validation, exclusion of sync credentials, and atomic video/workout saving. Cancelling either editor leaves saved media unchanged.
+Private family links are retired in the new app and API. Older browser databases and encrypted cloud objects are retained rather than deleted. The unsigned device view opens the previously selected local family cache when one exists.
 
-## Controls
+After logging in, choose **Import device workouts** to copy the old library on that browser into the current account/profile. Locally available images and videos are included; originals stay untouched. Import validates and stages the entire library before committing. Each import creates independent copies; repeated imports create additional copies. If an old file exists only in the retired cloud library, download/export it using the previous app before rollout or reattach it to the local workout before importing. The new account API cannot decrypt former family-link ciphertext.
 
-- Select a workout to preview it; use **Start workout** to begin.
-- Use **Edit workout** or **New workout** to configure intervals, cycles and optional media.
-- During a workout: **Space** pauses/resumes when focus is outside a button; **Left/Right arrows** skip intervals; **Escape** pauses. Focused buttons keep their native Space behavior.
-- **Sound on/off** mutes cues during a session. Settings retain voice, sound, vibration, light theme, backup and existing GitHub Gist sync options.
+Browser storage is origin-specific: import on the original GitHub Pages origin if that is where the files were saved. `cloud-config.js` sends Pages account requests to Railway; Railway and localhost use their own `/api`.
 
-## Files and deployment
+## Deployment configuration
 
-`index.html` contains the screens, `app.js` contains the timer/storage/media logic, `styles.css` contains the original shared components, and `redesign.css` contains the new design tokens and responsive presentation. `sw.js` updates the application cache, including the new stylesheet.
+The source changes alone do not configure Firebase or publish the app. Before deploying:
 
-This remains a static GitHub Pages app. Publish the project files to the existing Pages repository to deploy. Production is published to GitHub Pages; Firebase stores encrypted family libraries. `design/` and `tests/` are documentation and development artifacts and are not runtime dependencies.
+1. In the existing Firebase project, enable **Authentication → Sign-in method → Email/Password**. Configure the password-reset email template and authorized app domains.
+2. Set `FIREBASE_DATABASE_URL`, `FIREBASE_WEB_API_KEY` (Firebase project web API key), and `FIREBASE_SERVICE_ACCOUNT_JSON` in Railway. The service account needs access to Firebase Authentication and Realtime Database. Keep the JSON key exclusively in server environment variables. Application Default Credentials can be used instead of the JSON key in supported environments.
+3. Keep the private Railway bucket variables: `AWS_ENDPOINT_URL`, `AWS_S3_BUCKET_NAME`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. `PORT` and `RAILWAY_PUBLIC_DOMAIN` are provided by Railway. `ALLOWED_ORIGINS` is a comma-separated list for additional trusted frontend origins.
+4. Publish `firebase/database.rules.json`. It denies all direct client reads/writes, including former family capability paths. Only the trusted Railway Admin SDK accesses account metadata. Preserve an export of older libraries and complete required recovery before retiring old direct access.
+5. Deploy using the included Dockerfile and `/api/health` healthcheck. It returns healthy only when the account service and bucket are configured (it is a configuration check, not a live Firebase/bucket probe). Keep one service replica while the in-process upload/auth limits are used. Publish the same frontend files to Pages if retaining that origin.
+6. Verify real sign-up, duplicate usernames, username login, password-reset delivery, an uploaded file, two separate accounts sharing/revoking access, refresh after token expiry, and a second-device sync against the live providers. Local integration tests use injected Firebase/bucket fixtures and do not establish live provider configuration.
 
-See [design/verification.md](design/verification.md) for the visual specification, screenshots, browser checks, and test results.
+No passwords or service-account credentials are included in static assets. The API verifies Firebase ID tokens including revocation, checks ownership and current sharing permissions, validates library data, uses Firebase transactions for revision conflicts and hashes uploads. Account media is private object storage protected by server authorization; it does not use the old family encryption scheme. Object bytes are never stored in the database. Uploaded files are retained when a workout is deleted, protecting existing copies; administrative cleanup is a separate operation.
 
-## Local profiles
+## Local development and tests
 
-Use the profile button in the header to switch users or add a name. No email, subscription, or account is required. The original database stays in **My profile**. New profiles get their own IndexedDB database for workouts, videos and settings, and start with an empty library. The selected profile persists on this browser/device. Profile switching is unavailable during workouts and pending save/sync operations.
+Node 22+ and pnpm are required. Run `pnpm install --ignore-scripts`, then `pnpm start`. Copy the variable names from `.env.example` into your local environment; alternatively use `node --env-file=.env server.cjs` after supplying private values. `ALLOWED_ORIGINS` must include your local URL for account POST requests. Without Firebase settings the device timer still works and account endpoints return a clear unavailable error.
 
-Every workout has a visible **Delete** action, including the last workout in a profile. Confirming deletion removes its media and shows the empty-library screen. Profiles are local convenience spaces, not password-protected accounts. Existing backup and sync operations apply to the selected profile.
+Run `pnpm test`. Tests cover timer behavior, atomic local saving, provider URL parsing, link-preserving conflict copies, ownership, recipient lists, revocation, media access and stale revisions. Legacy encryption/capability tests remain as recovery regressions; the test fixture explicitly opts into the retired route, which production never enables.
 
+## Files
 
-## Private family links (Railway)
+- `app.js`, `index.html`, `styles.css`, `redesign.css`: timer, editors, local profile storage and account/sharing interfaces.
+- `accounts.cjs`, `server.cjs`: authenticated API, Firebase adapter and Railway file storage.
+- `account-sync.js`, `account-media.js`, `sync-merge.js`: sessions, synchronization and file handling.
+- `video-sources.js`: shared client/server provider URL parser.
+- `sw.js`: offline application shell. API, signed media and third-party players are never cached by the service worker.
+- `family-sync.js`, `cloud-media.js`, `drive-media.js`: preserved legacy code, not loaded by the current app.
 
-Use **Family link → Create family link** on the browser with your workouts. Open the resulting private link on other devices. Profiles, workouts, images and videos synchronize without Google sign-in. **Download for offline** stores the selected workout’s media locally. Keep the family link private: anyone holding it can read and modify the library.
-
-The app remains available on GitHub Pages so existing device storage stays accessible. `cloud-config.js` points both frontends to the Railway API. The Railway app serves the same frontend at its own domain. Opening a new origin cannot access another origin’s IndexedDB; create/open the family link from the old site to bring existing data across. Device libraries and family libraries use separate namespaces and are retained.
-
-`server.cjs` is a small Node server. It stores encrypted JSON snapshots and media in the private Railway `tabata-storage` bucket. No separate database service or volume is required. It uses conditional object writes for concurrent updates; the client performs three-way merging and preserves conflict copies. Independent server tests verify capability isolation, stale revision rejection, request validation and media integrity. Production verification must also test the bucket’s conditional-write support.
-
-The family key remains in the URL fragment and browser storage. The browser sends a domain-separated SHA-256 access capability and AES-GCM encrypted content. Cloud media has a random IV, ciphertext hash and plaintext hash; downloads verify both. Bucket credentials remain in Railway variable references. Public static files are explicitly allowlisted; server source and environment files are not served. Signed downloads expire after 15 minutes. CORS allows only the two app origins. New family creation is capability based; requests are bounded by metadata/file sizes, three simultaneous uploads, 1,000 writes/hour and a default 2 GiB/hour upload allowance per running process (`HOURLY_UPLOAD_BYTES`). These are abuse safeguards, not a billing cap.
-
-Uploads stream through the service into multipart object storage with bounded server memory; interrupted uploads can require retrying the file. Files are limited to 512 MB and browser encryption temporarily needs memory proportional to file size. Successful files are cached locally, so retrying a family sync skips completed files. Downloads go directly from the private bucket through short-lived signed URLs; service uploads incur Railway service egress charges. Cloud media is retained when workouts are deleted to avoid deleting files used by another profile or conflict copy. Bucket object versioning is unavailable; keep exports for independent backups.
-
-Legacy Firebase family links are imported once into Railway; Firebase originals are not deleted. Legacy Google Drive references are migrated from cached files when possible. If a file is only in Drive, reconnect the account through the recovery control. GitHub tokens and device preferences remain local.
-
-### Deployment
-
-Use the included Dockerfile (Node 24, pinned pnpm lockfile), one replica, and healthcheck `/api/health`. Attach the private bucket with its **Add to Service → AWS SDK (Generic)** control. Required variables: `AWS_ENDPOINT_URL`, `AWS_S3_BUCKET_NAME`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. Railway supplies `PORT` and `RAILWAY_PUBLIC_DOMAIN`; additional trusted origins can be specified in `ALLOWED_ORIGINS`. The server configures bucket CORS during startup.
-
-Run `pnpm install --ignore-scripts`, then `pnpm test`. Local HTTP integration tests require permission to listen on loopback. To run against cloud storage locally, configure bucket credentials privately; never commit them.
+The Firebase implementation follows the official [Authentication REST API](https://firebase.google.com/docs/reference/rest/auth), [ID token verification](https://firebase.google.com/docs/auth/admin/verify-id-tokens) and [Realtime Database transactions](https://firebase.google.com/docs/database/admin/save-data) documentation.

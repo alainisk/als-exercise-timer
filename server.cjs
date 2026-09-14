@@ -1,5 +1,6 @@
 'use strict';
 const http=require('node:http');
+const {FirebaseAccounts,createAccountAPI}=require('./accounts.cjs');
 const {createHash}=require('node:crypto');
 const {readFile}=require('node:fs/promises');
 const {Transform}=require('node:stream');
@@ -9,7 +10,7 @@ const {getSignedUrl}=require('@aws-sdk/s3-request-presigner');
 const HASH=/^[a-f0-9]{64}$/;
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const MAX_MEDIA=512*1024*1024+16;
-const PUBLIC=new Set(['index.html','app.js','family-sync.js','drive-media.js','cloud-media.js','cloud-config.js','styles.css','redesign.css','sw.js','manifest.json','favicon.png','icon-180.png','icon-192.png','icon-512.png','apple-touch-icon.png','stopwatch-32.png','stopwatch-180.png','stopwatch-192.png','stopwatch-512.png','privacy.html']);
+const PUBLIC=new Set(['index.html','app.js','family-sync.js','drive-media.js','cloud-media.js','cloud-config.js','styles.css','redesign.css','sw.js','manifest.json','favicon.png','icon-180.png','icon-192.png','icon-512.png','apple-touch-icon.png','stopwatch-32.png','stopwatch-180.png','stopwatch-192.png','stopwatch-512.png','privacy.html','account-sync.js','account-media.js','sync-merge.js','video-sources.js']);
 const mime={html:'text/html',js:'text/javascript',css:'text/css',json:'application/json',png:'image/png'};
 async function body(req,limit){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(Error('Request too large'),{status:413});chunks.push(chunk);}return Buffer.concat(chunks);}
 function envelope(data){return data?.version===1&&typeof data.revision==='string'&&/^[a-zA-Z0-9-]{1,80}$/.test(data.revision)&&typeof data.iv==='string'&&/^[A-Za-z0-9+/]{16}$/.test(data.iv)&&Array.isArray(data.chunks)&&data.chunks.length>0&&data.chunks.length<=24&&data.chunks.every(c=>typeof c==='string'&&c.length<=1000000&&/^[A-Za-z0-9+/=]+$/.test(c));}
@@ -19,14 +20,15 @@ class BucketStore{
  async put(key,text,etag){return this.client.send(new PutObjectCommand({Bucket:this.bucket,Key:key,Body:text,ContentType:'application/json',...(etag==='null_etag'?{IfNoneMatch:'*'}:{IfMatch:etag})}));}
  async exists(key){try{await this.client.send(new HeadObjectCommand({Bucket:this.bucket,Key:key}));return true;}catch(e){if(e.$metadata?.httpStatusCode===404)return false;throw e;}}
  async upload(key,stream,size){await new Upload({client:this.client,params:{Bucket:this.bucket,Key:key,Body:stream,ContentLength:size,ContentType:'application/octet-stream'},partSize:5*1024*1024,queueSize:2,leavePartsOnError:false}).done();}
- async url(key){return getSignedUrl(this.client,new GetObjectCommand({Bucket:this.bucket,Key:key}),{expiresIn:900});}
+ async url(key,expiresIn=900){return getSignedUrl(this.client,new GetObjectCommand({Bucket:this.bucket,Key:key}),{expiresIn});}
  async cors(origins){await this.client.send(new PutBucketCorsCommand({Bucket:this.bucket,CORSConfiguration:{CORSRules:[{AllowedOrigins:origins,AllowedMethods:['GET','HEAD'],AllowedHeaders:['*'],ExposeHeaders:['ETag'],MaxAgeSeconds:3600}]}}));}
 }
-function createServer(store,{root=__dirname,origins=[]}={}){
+function createServer(store,{root=__dirname,origins=[],accounts=null,legacyFamilies=false}={}){
  const allowed=new Set(['https://alainisk.github.io',...origins]);
  const activeUploads=new Set();
  let budgetStart=Date.now(),writeCount=0,uploadBytes=0;
  const allowWrite=bytes=>{if(Date.now()-budgetStart>3600000){budgetStart=Date.now();writeCount=0;uploadBytes=0;}if(writeCount>=1000||uploadBytes+bytes>Number(process.env.HOURLY_UPLOAD_BYTES||2147483648))return false;writeCount++;uploadBytes+=bytes;return true;};
+ const accountAPI=createAccountAPI(accounts,store,{body,allowWrite,activeUploads});
  return http.createServer(async(req,res)=>{
   const json=(code,value,headers={})=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store',...headers});res.end(JSON.stringify(value));};
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
@@ -36,8 +38,10 @@ function createServer(store,{root=__dirname,origins=[]}={}){
    if(path.startsWith('/api/')){
     if(origin&&!allowed.has(origin))return json(403,{error:'Origin not allowed'});
     if(origin){res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');res.setHeader('Access-Control-Expose-Headers','ETag');}
-    if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Methods':'GET,PUT,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type,If-Match,X-Firebase-ETag','Access-Control-Max-Age':'600'});return res.end();}
-    if(path==='/api/health')return json(store?200:503,{ok:!!store,storage:!!store});
+    if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Methods':'GET,PUT,POST,DELETE,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type,If-Match,X-Firebase-ETag','Access-Control-Max-Age':'600'});return res.end();}
+    if(path==='/api/health')return json(store&&accounts?200:503,{ok:!!store&&!!accounts,storage:!!store,accounts:!!accounts});
+    if(!path.startsWith('/api/families/'))return await accountAPI(req,res,path,json);
+    if(!legacyFamilies)return json(410,{error:'Family links have been retired. Please sign in to your account.'});
     if(!store)return json(503,{error:'Cloud storage is not configured'});
     const match=path.match(/^\/api\/families\/([a-f0-9]{64})(?:\/(revision|media\/([a-f0-9]{64})))?$/);
     if(!match)return json(404,{error:'Not found'});
@@ -70,12 +74,13 @@ function createServer(store,{root=__dirname,origins=[]}={}){
    if(!['GET','HEAD'].includes(req.method))return json(405,{error:'Method not allowed'});
    const name=path==='/'?'index.html':path.slice(1);if(!PUBLIC.has(name))return json(404,{error:'Not found'});
    const content=await readFile(root+'/'+name);res.writeHead(200,{'Content-Type':mime[name.split('.').pop()]||'application/octet-stream','Cache-Control':'no-cache'});res.end(req.method==='HEAD'?undefined:content);
-  }catch(e){const status=e.status||e.$metadata?.httpStatusCode; if(res.headersSent){res.destroy();return;}json(status===412?412:status===413?413:503,{error:status===412?'Another device saved first. Retry syncing.':'Cloud request failed. Local data is safe; retry shortly.'});}
+  }catch(e){const status=e.status||e.$metadata?.httpStatusCode; if(res.headersSent){res.destroy();return;}json([400,401,403,404,409,412,413,428,429].includes(status)?status:503,{error:e.status?e.message:status===412?'Another device saved first. Retry syncing.':'Cloud request failed. Local data is safe; retry shortly.'});}
  });
 }
 if(require.main===module){
  const origins=(process.env.ALLOWED_ORIGINS||'').split(',').filter(Boolean);if(process.env.RAILWAY_PUBLIC_DOMAIN)origins.push('https://'+process.env.RAILWAY_PUBLIC_DOMAIN);
  const store=process.env.AWS_S3_BUCKET_NAME?new BucketStore():null;
- (async()=>{if(store)await store.cors(['https://alainisk.github.io',...origins]);const server=createServer(store,{origins});server.requestTimeout=600000;server.listen(Number(process.env.PORT)||4174,'0.0.0.0',()=>console.log('Tabata Timer listening'));process.on('SIGTERM',()=>server.close(()=>process.exit(0)));})().catch(()=>{console.error('Storage initialization failed; check bucket configuration');process.exit(1);});
+ const accounts=process.env.FIREBASE_DATABASE_URL&&process.env.FIREBASE_WEB_API_KEY?new FirebaseAccounts():null;
+ (async()=>{if(store)await store.cors(['https://alainisk.github.io',...origins]);const server=createServer(store,{origins,accounts});server.requestTimeout=600000;server.listen(Number(process.env.PORT)||4174,'0.0.0.0',()=>console.log('Tabata Timer listening'));process.on('SIGTERM',()=>server.close(()=>process.exit(0)));})().catch(()=>{console.error('Storage initialization failed; check bucket configuration');process.exit(1);});
 }
 module.exports={createServer,envelope};
