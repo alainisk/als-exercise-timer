@@ -5,6 +5,13 @@ const {createHash}=require('node:crypto');
 const {createServer}=require('../server.cjs');
 const {validateLibrary,uidFor,username,workoutKey}=require('../accounts.cjs');
 const {memoryAccounts,memoryStore,library}=require('./account-fixture.cjs');
+test('Firebase transactions retry an initially empty cache without accepting missing records',async()=>{
+ const {FirebaseAccounts}=require('../accounts.cjs');const service=Object.create(FirebaseAccounts.prototype);
+ service.db={ref(){return {async transaction(fn){assert.equal(fn(null),null);assert.deepEqual(fn({exists:true}),{exists:true,saved:true});return {committed:true};}};}};
+ assert.equal(await service.transaction('record',current=>current?{...current,saved:true}:undefined),true);
+ service.db={ref(){return {async transaction(fn){assert.equal(fn(null),null);return {committed:true};}};}};
+ assert.equal(await service.transaction('missing',()=>undefined),false);
+});
 async function fixture(t){
  const accounts=memoryAccounts(),store=memoryStore();const alice=accounts.add('alice'),bob=accounts.add('bob'),eve=accounts.add('eve');
  const server=createServer(store,{accounts});await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>{server.closeAllConnections();server.close();});

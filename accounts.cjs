@@ -59,7 +59,17 @@ class FirebaseAccounts {
  async reset(input){if(typeof input.email!=='string'||input.email.length>254)fail(400,'Enter your email address.');try{await this.identity('sendOobCode',{requestType:'PASSWORD_RESET',email:input.email});}catch(e){if(e.status!==400)throw e;}return {ok:true};}
  async get(path){return (await this.db.ref(path).get()).val();}
  async update(changes){await this.db.ref().update(changes);}
- async transaction(path,fn){const r=await this.db.ref(path).transaction(fn);return r.committed;}
+ async transaction(path,fn){
+  let accepted=false;
+  const r=await this.db.ref(path).transaction(current=>{
+   const next=fn(current);accepted=next!==undefined;
+   // Firebase may initially supply null before loading the server value. A
+   // no-op compare-and-set lets it retry against existing data instead of
+   // aborting a valid share on an empty local cache.
+   return next===undefined&&current===null?null:next;
+  });
+  return r.committed&&accepted;
+ }
 }
 function createAccountAPI(accounts,store,{body,allowWrite,activeUploads}){
  let authStart=Date.now(),authAttempts=0;
